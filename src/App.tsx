@@ -11,24 +11,36 @@ import { StudentDirectory } from './components/StudentDirectory';
 import { SessionSummary } from './components/SessionSummary';
 import { CoachAvailability } from './components/CoachAvailability';
 import { Replacements } from './components/Replacements';
+import { STUDENTS, COACHES } from './constants';
+import { AttendanceStatus, Student, Coach } from './types';
 
 type Tab = 'dashboard' | 'sessions' | 'roster' | 'settings' | 'summary' | 'coaches' | 'replacements';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const [students, setStudents] = useState<Student[]>(STUDENTS);
+  const [coaches, setCoaches] = useState<Coach[]>(COACHES);
+
+  const handleStudentStatus = (id: string, status: AttendanceStatus) => {
+    setStudents(prev => prev.map(s => s.id === id ? { ...s, status } : s));
+  };
+
+  const handleCoachStatus = (id: string, status: Coach['status']) => {
+    setCoaches(prev => prev.map(c => c.id === id ? { ...c, status } : c));
+  };
 
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return <Dashboard />;
+        return <Dashboard onStartAttendance={() => setActiveTab('sessions')} />;
       case 'sessions':
-        return <SessionRoster />;
+        return <SessionRoster students={students} onStatusChange={handleStudentStatus} />;
       case 'roster':
-        return <StudentDirectory />;
+        return <StudentDirectory students={students} />;
       case 'summary':
         return <SessionSummary />;
       case 'coaches':
-        return <CoachAvailability />;
+        return <CoachAvailability coaches={coaches} onStatusChange={handleCoachStatus} />;
       case 'replacements':
         return <Replacements />;
       case 'settings':

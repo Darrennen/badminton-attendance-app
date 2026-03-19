@@ -1,8 +1,16 @@
 import React from 'react';
 import { FileText, CheckCircle, AlertCircle, Clock, Plus } from 'lucide-react';
-import { COACHES } from '../constants';
+import { Coach } from '../types';
 
-export const CoachAvailability: React.FC = () => {
+interface CoachAvailabilityProps {
+  coaches: Coach[];
+  onStatusChange: (id: string, status: Coach['status']) => void;
+}
+
+export const CoachAvailability: React.FC<CoachAvailabilityProps> = ({ coaches, onStatusChange }) => {
+  const activeCount = coaches.filter(c => c.status === 'active').length;
+  const replaceCount = coaches.filter(c => c.status === 'replace').length;
+
   return (
     <div className="space-y-10">
       {/* Header */}
@@ -18,21 +26,21 @@ export const CoachAvailability: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-surface-container-lowest p-6 rounded-3xl shadow-sm flex flex-col justify-between h-32">
           <span className="font-label text-outline text-xs font-semibold uppercase tracking-wider">Total Coaches</span>
-          <span className="font-headline font-extrabold text-3xl text-primary">24</span>
+          <span className="font-headline font-extrabold text-3xl text-primary">{coaches.length}</span>
         </div>
         <div className="bg-secondary-container/20 p-6 rounded-3xl shadow-sm flex flex-col justify-between h-32">
           <span className="font-label text-secondary text-xs font-semibold uppercase tracking-wider">Currently Active</span>
-          <span className="font-headline font-extrabold text-3xl text-secondary">18</span>
+          <span className="font-headline font-extrabold text-3xl text-secondary">{activeCount}</span>
         </div>
         <div className="bg-tertiary-container/10 p-6 rounded-3xl shadow-sm flex flex-col justify-between h-32">
           <span className="font-label text-tertiary text-xs font-semibold uppercase tracking-wider">Replacements Pending</span>
-          <span className="font-headline font-extrabold text-3xl text-tertiary">02</span>
+          <span className="font-headline font-extrabold text-3xl text-tertiary">{String(replaceCount).padStart(2, '0')}</span>
         </div>
       </div>
 
       {/* Coach List */}
       <div className="space-y-4">
-        {COACHES.map(coach => (
+        {coaches.map(coach => (
           <div key={coach.id} className={`bg-surface-container-low p-5 rounded-3xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6 hover:bg-surface-container-high transition-colors ${coach.status === 'replace' ? 'border-l-4 border-tertiary' : ''}`}>
             <div className="flex items-center gap-5 flex-1">
               <div className="w-14 h-14 rounded-full bg-white flex items-center justify-center text-primary font-bold text-xl shadow-sm">
@@ -47,21 +55,30 @@ export const CoachAvailability: React.FC = () => {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <button className={`font-label text-[11px] font-bold px-4 py-2 rounded-full uppercase tracking-wider flex items-center gap-2 active:scale-95 transition-transform ${
-                coach.status === 'active' ? 'bg-secondary-container text-on-secondary-container' : 'bg-white text-outline hover:bg-slate-100'
-              }`}>
+              <button
+                onClick={() => onStatusChange(coach.id, 'active')}
+                className={`font-label text-[11px] font-bold px-4 py-2 rounded-full uppercase tracking-wider flex items-center gap-2 active:scale-95 transition-transform ${
+                  coach.status === 'active' ? 'bg-secondary-container text-on-secondary-container' : 'bg-white text-outline hover:bg-slate-100'
+                }`}
+              >
                 {coach.status === 'active' && <CheckCircle size={14} />}
                 Active
               </button>
-              <button className={`font-label text-[11px] font-bold px-4 py-2 rounded-full uppercase tracking-wider flex items-center gap-2 active:scale-95 transition-transform ${
-                coach.status === 'on-break' ? 'bg-primary-fixed text-on-primary-fixed' : 'bg-white text-outline hover:bg-slate-100'
-              }`}>
+              <button
+                onClick={() => onStatusChange(coach.id, 'on-break')}
+                className={`font-label text-[11px] font-bold px-4 py-2 rounded-full uppercase tracking-wider flex items-center gap-2 active:scale-95 transition-transform ${
+                  coach.status === 'on-break' ? 'bg-primary-fixed text-on-primary-fixed' : 'bg-white text-outline hover:bg-slate-100'
+                }`}
+              >
                 {coach.status === 'on-break' && <Clock size={14} />}
                 On Break
               </button>
-              <button className={`font-label text-[11px] font-bold px-4 py-2 rounded-full uppercase tracking-wider flex items-center gap-2 active:scale-95 transition-transform ${
-                coach.status === 'replace' ? 'bg-tertiary-container text-white' : 'bg-white text-outline hover:bg-slate-100'
-              }`}>
+              <button
+                onClick={() => onStatusChange(coach.id, 'replace')}
+                className={`font-label text-[11px] font-bold px-4 py-2 rounded-full uppercase tracking-wider flex items-center gap-2 active:scale-95 transition-transform ${
+                  coach.status === 'replace' ? 'bg-tertiary-container text-white' : 'bg-white text-outline hover:bg-slate-100'
+                }`}
+              >
                 {coach.status === 'replace' && <AlertCircle size={14} />}
                 {coach.status === 'replace' ? 'Replacement Needed' : 'Replace'}
               </button>

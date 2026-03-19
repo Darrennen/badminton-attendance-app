@@ -2,7 +2,11 @@ import React from 'react';
 import { Calendar, TrendingUp, MoreVertical, Clock, Users as UsersIcon } from 'lucide-react';
 import { SESSIONS } from '../constants';
 
-export const Dashboard: React.FC = () => {
+interface DashboardProps {
+  onStartAttendance: () => void;
+}
+
+export const Dashboard: React.FC<DashboardProps> = ({ onStartAttendance }) => {
   return (
     <div className="space-y-12">
       {/* Header Section */}
@@ -27,7 +31,7 @@ export const Dashboard: React.FC = () => {
             </div>
             <div className="relative z-10 flex items-center gap-6">
               <div className="text-4xl font-black">09:45 AM</div>
-              <button className="bg-surface-container-lowest text-primary px-6 py-3 rounded-full font-bold shadow-sm hover:scale-105 transition-transform active:scale-95">
+              <button onClick={onStartAttendance} className="bg-surface-container-lowest text-primary px-6 py-3 rounded-full font-bold shadow-sm hover:scale-105 transition-transform active:scale-95">
                 Start Attendance
               </button>
             </div>

@@ -1,9 +1,21 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Search, Filter, MoreVertical, UserPlus, User } from 'lucide-react';
-import { STUDENTS } from '../constants';
+import { Student } from '../types';
 
-export const StudentDirectory: React.FC = () => {
-  const groups = Array.from(new Set(STUDENTS.map(s => s.group)));
+interface StudentDirectoryProps {
+  students: Student[];
+}
+
+export const StudentDirectory: React.FC<StudentDirectoryProps> = ({ students }) => {
+  const [query, setQuery] = useState('');
+  const filtered = query
+    ? students.filter(s =>
+        s.name.toLowerCase().includes(query.toLowerCase()) ||
+        s.studentId.toLowerCase().includes(query.toLowerCase()) ||
+        (s.group ?? '').toLowerCase().includes(query.toLowerCase())
+      )
+    : students;
+  const groups = Array.from(new Set(filtered.map(s => s.group)));
 
   return (
     <div className="space-y-10">
@@ -16,9 +28,11 @@ export const StudentDirectory: React.FC = () => {
         <div className="flex flex-col md:flex-row gap-4 items-center">
           <div className="relative w-full">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-outline" size={20} />
-            <input 
-              className="w-full pl-12 pr-4 py-4 bg-surface-container-high border-none rounded-2xl focus:ring-2 focus:ring-primary/20 transition-all font-medium text-on-surface-variant placeholder:text-outline/70" 
-              placeholder="Search by name, ID, or group..." 
+            <input
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              className="w-full pl-12 pr-4 py-4 bg-surface-container-high border-none rounded-2xl focus:ring-2 focus:ring-primary/20 transition-all font-medium text-on-surface-variant placeholder:text-outline/70"
+              placeholder="Search by name, ID, or group..."
               type="text"
             />
           </div>
@@ -51,11 +65,11 @@ export const StudentDirectory: React.FC = () => {
           <div className="flex items-center justify-between mb-4 px-2">
             <h3 className="font-headline font-bold text-xl text-primary">Group: {group}</h3>
             <span className="font-label text-xs font-bold uppercase tracking-widest bg-primary-fixed text-on-primary-fixed px-3 py-1 rounded-full">
-              {STUDENTS.filter(s => s.group === group).length} Students
+              {filtered.filter(s => s.group === group).length} Students
             </span>
           </div>
           <div className="flex flex-col gap-2">
-            {STUDENTS.filter(s => s.group === group).map(student => (
+            {filtered.filter(s => s.group === group).map(student => (
               <div key={student.id} className="group bg-surface-container-low hover:bg-surface-container-high transition-all p-4 flex items-center justify-between rounded-2xl">
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 rounded-2xl bg-surface-container-highest flex items-center justify-center text-primary overflow-hidden">
