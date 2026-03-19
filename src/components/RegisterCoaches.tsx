@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { UserCircle, Trash2, Phone, ChevronDown, ChevronUp } from 'lucide-react';
+import { UserCircle, Trash2, Phone, ChevronDown, ChevronUp, CheckCircle } from 'lucide-react';
 import { RegisteredCoach, TrainingSession } from '../types';
 
 interface Props {
@@ -9,16 +9,18 @@ interface Props {
   onDelete: (id: string) => void;
 }
 
-const emptyForm = {
+const blank = () => ({
   name: '',
   icNumber: '',
   phone: '',
   sessionIds: [] as string[],
-};
+});
 
 export const RegisterCoaches: React.FC<Props> = ({ coaches, sessions, onAdd, onDelete }) => {
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState(blank());
   const [showForm, setShowForm] = useState(true);
+  const [error, setError] = useState('');
+  const [successName, setSuccessName] = useState('');
 
   const toggleSession = (id: string) => {
     setForm(prev => ({
@@ -31,14 +33,12 @@ export const RegisterCoaches: React.FC<Props> = ({ coaches, sessions, onAdd, onD
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name.trim() || !form.icNumber.trim()) return;
-    const initials = form.name
-      .trim()
-      .split(' ')
-      .map(w => w[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 2);
+    if (!form.name.trim()) { setError('Full name is required.'); return; }
+    if (!form.icNumber.trim()) { setError('IC number is required.'); return; }
+    setError('');
+
+    const initials = form.name.trim().split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+
     const coach: RegisteredCoach = {
       id: Date.now().toString(),
       name: form.name.trim(),
@@ -49,8 +49,12 @@ export const RegisterCoaches: React.FC<Props> = ({ coaches, sessions, onAdd, onD
       coachStatus: 'active',
       registeredAt: new Date().toISOString(),
     };
+
     onAdd(coach);
-    setForm(emptyForm);
+    setSuccessName(coach.name);
+    setForm(blank());
+    setShowForm(false);
+    setTimeout(() => setSuccessName(''), 4000);
   };
 
   return (
@@ -60,6 +64,14 @@ export const RegisterCoaches: React.FC<Props> = ({ coaches, sessions, onAdd, onD
         <h2 className="font-headline font-extrabold text-4xl text-on-background tracking-tight">Register Coaches</h2>
         <p className="text-on-surface-variant mt-2 text-sm">{coaches.length} coach{coaches.length !== 1 ? 'es' : ''} registered</p>
       </div>
+
+      {/* Success banner */}
+      {successName && (
+        <div className="flex items-center gap-3 p-4 bg-secondary-container rounded-2xl text-on-secondary-container font-semibold text-sm">
+          <CheckCircle size={18} />
+          {successName} has been registered as a coach!
+        </div>
+      )}
 
       {/* Form card */}
       <div className="bg-surface-container-low rounded-3xl overflow-hidden">
@@ -79,14 +91,19 @@ export const RegisterCoaches: React.FC<Props> = ({ coaches, sessions, onAdd, onD
 
         {showForm && (
           <form onSubmit={handleSubmit} className="px-6 pb-6 space-y-5">
+
+            {/* Validation error */}
+            {error && (
+              <p className="text-sm font-semibold text-tertiary bg-tertiary-container/20 px-4 py-3 rounded-xl">{error}</p>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Name */}
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-outline mb-1.5">Full Name *</label>
                 <input
-                  required
                   value={form.name}
-                  onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
+                  onChange={e => { setError(''); setForm(p => ({ ...p, name: e.target.value })); }}
                   className="w-full px-4 py-3 bg-surface-container-high rounded-xl text-on-surface font-medium focus:outline-none focus:ring-2 focus:ring-primary/30 text-sm"
                   placeholder="e.g. Darren Yap"
                 />
@@ -95,9 +112,8 @@ export const RegisterCoaches: React.FC<Props> = ({ coaches, sessions, onAdd, onD
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-outline mb-1.5">IC Number *</label>
                 <input
-                  required
                   value={form.icNumber}
-                  onChange={e => setForm(p => ({ ...p, icNumber: e.target.value }))}
+                  onChange={e => { setError(''); setForm(p => ({ ...p, icNumber: e.target.value })); }}
                   className="w-full px-4 py-3 bg-surface-container-high rounded-xl text-on-surface font-medium focus:outline-none focus:ring-2 focus:ring-primary/30 text-sm"
                   placeholder="e.g. 900101-14-5432"
                 />
@@ -120,7 +136,7 @@ export const RegisterCoaches: React.FC<Props> = ({ coaches, sessions, onAdd, onD
               <label className="block text-[11px] font-bold uppercase tracking-wider text-outline mb-2">Sessions Handling</label>
               {sessions.length === 0 ? (
                 <p className="text-sm text-outline bg-surface-container-high px-4 py-3 rounded-xl">
-                  No sessions added yet — go to <strong>Manage Sessions</strong> first.
+                  No sessions yet — go to <strong>Sessions</strong> tab first.
                 </p>
               ) : (
                 <div className="flex flex-wrap gap-2">
@@ -144,7 +160,7 @@ export const RegisterCoaches: React.FC<Props> = ({ coaches, sessions, onAdd, onD
 
             <button
               type="submit"
-              className="bg-secondary text-white font-headline font-bold px-8 py-3 rounded-xl active:scale-95 transition-transform shadow-md"
+              className="w-full md:w-auto bg-secondary text-white font-headline font-bold px-8 py-3 rounded-xl active:scale-95 transition-transform shadow-md"
             >
               Register Coach
             </button>
@@ -161,6 +177,7 @@ export const RegisterCoaches: React.FC<Props> = ({ coaches, sessions, onAdd, onD
           <div className="text-center py-16 bg-surface-container-low rounded-3xl text-outline">
             <UserCircle size={32} className="mx-auto mb-3 opacity-30" />
             <p className="font-medium">No coaches registered yet.</p>
+            <p className="text-sm mt-1">Use the form above to add coaches.</p>
           </div>
         ) : (
           <div className="space-y-3">

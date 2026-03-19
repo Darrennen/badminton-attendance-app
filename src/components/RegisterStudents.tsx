@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { UserPlus, Trash2, Phone, ChevronDown, ChevronUp, ShieldAlert } from 'lucide-react';
+import { UserPlus, Trash2, Phone, ChevronDown, ChevronUp, ShieldAlert, CheckCircle } from 'lucide-react';
 import { RegisteredStudent, TrainingSession } from '../types';
 
 interface Props {
@@ -9,7 +9,7 @@ interface Props {
   onDelete: (id: string) => void;
 }
 
-const emptyForm = {
+const blank = () => ({
   name: '',
   icNumber: '',
   phone: '',
@@ -17,11 +17,13 @@ const emptyForm = {
   emergencyContactPhone: '',
   sessionIds: [] as string[],
   group: '',
-};
+});
 
 export const RegisterStudents: React.FC<Props> = ({ students, sessions, onAdd, onDelete }) => {
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState(blank());
   const [showForm, setShowForm] = useState(true);
+  const [error, setError] = useState('');
+  const [successName, setSuccessName] = useState('');
 
   const toggleSession = (id: string) => {
     setForm(prev => ({
@@ -34,7 +36,10 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, onAdd, o
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name.trim() || !form.icNumber.trim()) return;
+    if (!form.name.trim()) { setError('Full name is required.'); return; }
+    if (!form.icNumber.trim()) { setError('IC number is required.'); return; }
+    setError('');
+
     const student: RegisteredStudent = {
       id: Date.now().toString(),
       name: form.name.trim(),
@@ -47,8 +52,12 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, onAdd, o
       group: form.group.trim() || undefined,
       registeredAt: new Date().toISOString(),
     };
+
     onAdd(student);
-    setForm(emptyForm);
+    setSuccessName(student.name);
+    setForm(blank());
+    setShowForm(false);
+    setTimeout(() => setSuccessName(''), 4000);
   };
 
   return (
@@ -58,6 +67,14 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, onAdd, o
         <h2 className="font-headline font-extrabold text-4xl text-on-background tracking-tight">Register Students</h2>
         <p className="text-on-surface-variant mt-2 text-sm">{students.length} student{students.length !== 1 ? 's' : ''} registered</p>
       </div>
+
+      {/* Success banner */}
+      {successName && (
+        <div className="flex items-center gap-3 p-4 bg-secondary-container rounded-2xl text-on-secondary-container font-semibold text-sm">
+          <CheckCircle size={18} />
+          {successName} has been registered successfully!
+        </div>
+      )}
 
       {/* Form card */}
       <div className="bg-surface-container-low rounded-3xl overflow-hidden">
@@ -77,14 +94,19 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, onAdd, o
 
         {showForm && (
           <form onSubmit={handleSubmit} className="px-6 pb-6 space-y-5">
+
+            {/* Validation error */}
+            {error && (
+              <p className="text-sm font-semibold text-tertiary bg-tertiary-container/20 px-4 py-3 rounded-xl">{error}</p>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Name */}
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-outline mb-1.5">Full Name *</label>
                 <input
-                  required
                   value={form.name}
-                  onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
+                  onChange={e => { setError(''); setForm(p => ({ ...p, name: e.target.value })); }}
                   className="w-full px-4 py-3 bg-surface-container-high rounded-xl text-on-surface font-medium focus:outline-none focus:ring-2 focus:ring-primary/30 text-sm"
                   placeholder="e.g. Ahmad Bin Ali"
                 />
@@ -93,9 +115,8 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, onAdd, o
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-outline mb-1.5">IC Number *</label>
                 <input
-                  required
                   value={form.icNumber}
-                  onChange={e => setForm(p => ({ ...p, icNumber: e.target.value }))}
+                  onChange={e => { setError(''); setForm(p => ({ ...p, icNumber: e.target.value })); }}
                   className="w-full px-4 py-3 bg-surface-container-high rounded-xl text-on-surface font-medium focus:outline-none focus:ring-2 focus:ring-primary/30 text-sm"
                   placeholder="e.g. 990101-14-5432"
                 />
@@ -153,7 +174,7 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, onAdd, o
               <label className="block text-[11px] font-bold uppercase tracking-wider text-outline mb-2">Sessions Joining</label>
               {sessions.length === 0 ? (
                 <p className="text-sm text-outline bg-surface-container-high px-4 py-3 rounded-xl">
-                  No sessions added yet — go to <strong>Manage Sessions</strong> first.
+                  No sessions yet — go to <strong>Sessions</strong> tab first to add training sessions.
                 </p>
               ) : (
                 <div className="flex flex-wrap gap-2">
@@ -177,7 +198,7 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, onAdd, o
 
             <button
               type="submit"
-              className="bg-primary text-white font-headline font-bold px-8 py-3 rounded-xl active:scale-95 transition-transform shadow-md"
+              className="w-full md:w-auto bg-primary text-white font-headline font-bold px-8 py-3 rounded-xl active:scale-95 transition-transform shadow-md"
             >
               Register Student
             </button>
@@ -194,6 +215,7 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, onAdd, o
           <div className="text-center py-16 bg-surface-container-low rounded-3xl text-outline">
             <UserPlus size={32} className="mx-auto mb-3 opacity-30" />
             <p className="font-medium">No students registered yet.</p>
+            <p className="text-sm mt-1">Use the form above to add students.</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -203,7 +225,11 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, onAdd, o
                   <div>
                     <p className="font-headline font-bold text-on-surface text-base">{s.name}</p>
                     <p className="text-outline text-xs mt-0.5">{s.studentId} · IC: {s.icNumber}</p>
-                    {s.group && <span className="inline-block mt-1 bg-primary-fixed text-on-primary-fixed text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">{s.group}</span>}
+                    {s.group && (
+                      <span className="inline-block mt-1 bg-primary-fixed text-on-primary-fixed text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                        {s.group}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-start gap-2 text-on-surface-variant">
                     <Phone size={14} className="mt-0.5 shrink-0 text-outline" />
@@ -216,7 +242,7 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, onAdd, o
                   </div>
                   <div className="flex flex-wrap gap-1.5 items-start">
                     {s.sessionIds.length === 0 ? (
-                      <span className="text-xs text-outline">No sessions</span>
+                      <span className="text-xs text-outline">No sessions assigned</span>
                     ) : s.sessionIds.map(sid => {
                       const sess = sessions.find(x => x.id === sid);
                       return sess ? (

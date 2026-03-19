@@ -1,4 +1,4 @@
-const CACHE_NAME = 'badminton-attendance-v1';
+const CACHE_NAME = 'badminton-attendance-v3';
 
 // Add all the URLs you want cached for offline use
 const urlsToCache = [
