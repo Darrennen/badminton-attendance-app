@@ -9,6 +9,39 @@ export interface Student {
   group?: string;
 }
 
+export interface RegisteredStudent {
+  id: string;
+  name: string;
+  studentId: string;       // auto-generated e.g. #000001
+  icNumber: string;
+  phone: string;
+  emergencyContactName: string;
+  emergencyContactPhone: string;
+  sessionIds: string[];
+  avatar?: string;
+  group?: string;
+  registeredAt: string;
+}
+
+export interface RegisteredCoach {
+  id: string;
+  name: string;
+  icNumber: string;
+  phone: string;
+  sessionIds: string[];
+  initials: string;
+  coachStatus: 'active' | 'on-break' | 'replace';
+  registeredAt: string;
+}
+
+export interface TrainingSession {
+  id: string;
+  name: string;
+  day: string;
+  startTime: string;
+  endTime: string;
+}
+
 export interface Session {
   id: string;
   title: string;
