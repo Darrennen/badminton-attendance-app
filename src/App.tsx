@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Layout } from './components/Layout';
 import { Dashboard } from './components/Dashboard';
 import { SessionRoster } from './components/SessionRoster';
@@ -16,10 +16,31 @@ import { AttendanceStatus, Student, Coach } from './types';
 
 type Tab = 'dashboard' | 'sessions' | 'roster' | 'settings' | 'summary' | 'coaches' | 'replacements';
 
+const todayISO = () => new Date().toISOString().slice(0, 10);
+
+const loadAttendance = (date: string): Student[] => {
+  try {
+    const saved = localStorage.getItem(`attendance_${date}`);
+    if (saved) return JSON.parse(saved);
+  } catch {}
+  return STUDENTS.map(s => ({ ...s, status: 'none' as AttendanceStatus }));
+};
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
-  const [students, setStudents] = useState<Student[]>(STUDENTS);
+  const [sessionDate, setSessionDate] = useState(todayISO());
+  const [students, setStudents] = useState<Student[]>(() => loadAttendance(todayISO()));
   const [coaches, setCoaches] = useState<Coach[]>(COACHES);
+
+  // Load saved attendance whenever date changes
+  useEffect(() => {
+    setStudents(loadAttendance(sessionDate));
+  }, [sessionDate]);
+
+  // Auto-save whenever attendance changes
+  useEffect(() => {
+    localStorage.setItem(`attendance_${sessionDate}`, JSON.stringify(students));
+  }, [students, sessionDate]);
 
   const handleStudentStatus = (id: string, status: AttendanceStatus) => {
     setStudents(prev => prev.map(s => s.id === id ? { ...s, status } : s));
@@ -34,7 +55,14 @@ export default function App() {
       case 'dashboard':
         return <Dashboard onStartAttendance={() => setActiveTab('sessions')} />;
       case 'sessions':
-        return <SessionRoster students={students} onStatusChange={handleStudentStatus} />;
+        return (
+          <SessionRoster
+            students={students}
+            onStatusChange={handleStudentStatus}
+            sessionDate={sessionDate}
+            onDateChange={setSessionDate}
+          />
+        );
       case 'roster':
         return <StudentDirectory students={students} />;
       case 'summary':
