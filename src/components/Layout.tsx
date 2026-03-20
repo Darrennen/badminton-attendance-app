@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, CalendarDays, UserPlus, UserCircle, Layers } from 'lucide-react';
+import { LayoutDashboard, CalendarDays, UserPlus, UserCircle, Layers, CreditCard } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface LayoutProps {
@@ -13,6 +13,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
   const topNav = [
     { id: 'dashboard', label: 'Dashboard' },
     { id: 'sessions', label: 'Attendance' },
+    { id: 'payments', label: 'Payments' },
     { id: 'register-students', label: 'Students' },
     { id: 'register-coaches', label: 'Coaches' },
     { id: 'manage-sessions', label: 'Sessions' },
@@ -21,9 +22,9 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
   const bottomNav = [
     { id: 'dashboard', label: 'Home', icon: LayoutDashboard },
     { id: 'sessions', label: 'Attendance', icon: CalendarDays },
+    { id: 'payments', label: 'Payments', icon: CreditCard },
     { id: 'register-students', label: 'Students', icon: UserPlus },
     { id: 'register-coaches', label: 'Coaches', icon: UserCircle },
-    { id: 'manage-sessions', label: 'Sessions', icon: Layers },
   ];
 
   return (

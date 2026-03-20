@@ -14,8 +14,9 @@ import { Replacements } from './components/Replacements';
 import { RegisterStudents } from './components/RegisterStudents';
 import { RegisterCoaches } from './components/RegisterCoaches';
 import { ManageSessions } from './components/ManageSessions';
+import { PaymentTracker } from './components/PaymentTracker';
 import { COACHES } from './constants';
-import { AttendanceStatus, Student, Coach, RegisteredStudent, RegisteredCoach, TrainingSession } from './types';
+import { AttendanceStatus, PaymentStatus, Student, Coach, RegisteredStudent, RegisteredCoach, TrainingSession } from './types';
 
 type Tab =
   | 'dashboard'
@@ -27,9 +28,11 @@ type Tab =
   | 'replacements'
   | 'register-students'
   | 'register-coaches'
-  | 'manage-sessions';
+  | 'manage-sessions'
+  | 'payments';
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
+const thisMonth = () => new Date().toISOString().slice(0, 7);
 
 function loadJSON<T>(key: string, fallback: T): T {
   try {
@@ -89,6 +92,21 @@ export default function App() {
   useEffect(() => {
     saveJSON(`replacements_${sessionDate}`, replacements);
   }, [replacements, sessionDate]);
+
+  // --- Payment state (per month) ---
+  const [paymentMonth, setPaymentMonth] = useState(thisMonth());
+  const [paymentMap, setPaymentMap] = useState<Record<string, PaymentStatus>>(
+    () => loadJSON(`payments_${thisMonth()}`, {})
+  );
+  useEffect(() => {
+    setPaymentMap(loadJSON(`payments_${paymentMonth}`, {}));
+  }, [paymentMonth]);
+  useEffect(() => {
+    saveJSON(`payments_${paymentMonth}`, paymentMap);
+  }, [paymentMap, paymentMonth]);
+  const handlePaymentStatus = (studentId: string, status: PaymentStatus) => {
+    setPaymentMap(prev => ({ ...prev, [studentId]: status }));
+  };
 
   const addReplacement = (studentId: string, sessionId: string, coachId: string) => {
     setReplacements(prev =>
@@ -202,6 +220,17 @@ export default function App() {
             onDelete={deleteSession}
           />
         );
+      case 'payments':
+        return (
+          <PaymentTracker
+            students={registeredStudents}
+            sessions={trainingSessions}
+            paymentMap={paymentMap}
+            paymentMonth={paymentMonth}
+            onMonthChange={setPaymentMonth}
+            onStatusChange={handlePaymentStatus}
+          />
+        );
       case 'settings':
         return (
           <div className="flex items-center justify-center h-64 text-outline">
@@ -224,6 +253,7 @@ export default function App() {
       case 'register-students': return 'Register Students';
       case 'register-coaches': return 'Register Coaches';
       case 'manage-sessions': return 'Manage Sessions';
+      case 'payments': return 'Payments';
       case 'settings': return 'Settings';
       default: return 'Badminton Attendance';
     }
