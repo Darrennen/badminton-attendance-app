@@ -5,6 +5,20 @@ import { Student, AttendanceStatus, RegisteredStudent, RegisteredCoach, Training
 
 type ReplacementStudent = Student & { sessionId: string; coachId: string };
 
+// Auto-size columns + freeze header row and first 3 fixed columns
+function styleSheet(ws: XLSX.WorkSheet, rows: Record<string, string>[], fixedCols = 3) {
+  if (rows.length === 0) return;
+  const keys = Object.keys(rows[0]);
+  ws['!cols'] = keys.map((key, i) => {
+    const maxLen = Math.max(key.length, ...rows.map(r => String(r[key] ?? '').length));
+    // Fixed columns get a comfortable min-width; date columns get a bit more room
+    const base = i < fixedCols ? Math.max(maxLen, 16) : Math.max(maxLen, 13);
+    return { wch: base + 2 };
+  });
+  // Freeze header row + first N fixed columns so you can scroll dates while names stay visible
+  ws['!freeze'] = { xSplit: fixedCols, ySplit: 1 };
+}
+
 // Build (or update) a pivot workbook where each session is its own sheet:
 //   Rows = students,  Columns = Name | Student ID | Group | date1 | date2 | …
 // Replacements go on a separate flat "Replacements" sheet.
@@ -61,6 +75,7 @@ function buildPivotWorkbook(
     }
 
     const ws = XLSX.utils.json_to_sheet(rows);
+    styleSheet(ws, rows, 3); // freeze Name | Student ID | Group
     if (baseWb?.SheetNames.includes(sheetName)) {
       wb.Sheets[sheetName] = ws;
     } else {
@@ -102,6 +117,7 @@ function buildPivotWorkbook(
 
     if (replRows.length > 0) {
       const ws = XLSX.utils.json_to_sheet(replRows);
+      styleSheet(ws, replRows, 0); // no freeze — flat list, all columns fixed
       if (baseWb?.SheetNames.includes(replSheetName)) {
         wb.Sheets[replSheetName] = ws;
       } else {
