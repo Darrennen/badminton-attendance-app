@@ -16,7 +16,7 @@ import { RegisterCoaches } from './components/RegisterCoaches';
 import { ManageSessions } from './components/ManageSessions';
 import { PaymentTracker } from './components/PaymentTracker';
 import { COACHES } from './constants';
-import { AttendanceStatus, CoachAttendanceStatus, PaymentStatus, Student, Coach, RegisteredStudent, RegisteredCoach, TrainingSession, ScheduledReplacement } from './types';
+import { AttendanceStatus, CoachAttendanceStatus, PaymentStatus, Student, Coach, RegisteredStudent, RegisteredCoach, TrainingSession, ScheduledReplacement, MonthlyExpense } from './types';
 import { CoachReplacement } from './utils/excel';
 
 type Tab =
@@ -108,6 +108,17 @@ export default function App() {
   }, [paymentMonth]);
   useEffect(() => { saveJSON(`payments_${paymentMonth}`, paymentMap); }, [paymentMap, paymentMonth]);
   useEffect(() => { saveJSON(`coach_payments_${paymentMonth}`, coachPaymentMap); }, [coachPaymentMap, paymentMonth]);
+
+  // --- Monthly expenses ---
+  const [expenses, setExpenses] = useState<MonthlyExpense[]>(
+    () => loadJSON(`expenses_${thisMonth()}`, [])
+  );
+  useEffect(() => {
+    setExpenses(loadJSON(`expenses_${paymentMonth}`, []));
+  }, [paymentMonth]);
+  useEffect(() => { saveJSON(`expenses_${paymentMonth}`, expenses); }, [expenses, paymentMonth]);
+  const addExpense = (e: MonthlyExpense) => setExpenses(prev => [...prev, e]);
+  const removeExpense = (id: string) => setExpenses(prev => prev.filter(e => e.id !== id));
   const handlePaymentStatus = (studentId: string, status: PaymentStatus) =>
     setPaymentMap(prev => ({ ...prev, [studentId]: status }));
   const handleCoachPaymentStatus = (coachId: string, status: PaymentStatus) =>
@@ -314,6 +325,9 @@ export default function App() {
             coachAttendanceMap={coachAttendanceMap}
             coachReplacements={coachReplacements}
             monthlyCoachClassCounts={getMonthlyCoachClassCounts(paymentMonth)}
+            expenses={expenses}
+            onAddExpense={addExpense}
+            onRemoveExpense={removeExpense}
           />
         );
       case 'settings':

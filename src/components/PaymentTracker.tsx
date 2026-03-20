@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { CheckCircle, XCircle, CreditCard, FileSpreadsheet, RefreshCw, AlertCircle } from 'lucide-react';
-import { Student, RegisteredStudent, RegisteredCoach, TrainingSession, PaymentStatus, BreakPeriod } from '../types';
+import { CheckCircle, XCircle, CreditCard, FileSpreadsheet, RefreshCw, AlertCircle, TrendingUp, TrendingDown, Minus, Plus, Trash2 } from 'lucide-react';
+import { Student, RegisteredStudent, RegisteredCoach, TrainingSession, PaymentStatus, BreakPeriod, MonthlyExpense } from '../types';
 import { buildCombinedWorkbook, ReplacementStudent } from '../utils/excel';
 
 interface Props {
@@ -21,6 +21,9 @@ interface Props {
   coachAttendanceMap: Record<string, import('../types').CoachAttendanceStatus>;
   coachReplacements: import('../utils/excel').CoachReplacement[];
   monthlyCoachClassCounts: Record<string, number>;
+  expenses: MonthlyExpense[];
+  onAddExpense: (e: MonthlyExpense) => void;
+  onRemoveExpense: (id: string) => void;
 }
 
 export const PaymentTracker: React.FC<Props> = ({
@@ -39,6 +42,9 @@ export const PaymentTracker: React.FC<Props> = ({
   coachAttendanceMap,
   coachReplacements,
   monthlyCoachClassCounts,
+  expenses,
+  onAddExpense,
+  onRemoveExpense,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeSession, setActiveSession] = useState('all');
@@ -71,7 +77,9 @@ export const PaymentTracker: React.FC<Props> = ({
     return s ? { ...s, sessionId: r.sessionId, coachId: r.coachId } : null;
   }).filter(Boolean) as ReplacementStudent[];
 
-  const [activeTab, setActiveTab] = useState<'students' | 'coaches'>('students');
+  const [activeTab, setActiveTab] = useState<'students' | 'coaches' | 'summary'>('students');
+  const [newExpenseLabel, setNewExpenseLabel] = useState('');
+  const [newExpenseAmount, setNewExpenseAmount] = useState('');
 
   const exportXLSX = () => {
     const wb = buildCombinedWorkbook(sessions, students, studentsWithStatus, replacementStudents, coaches, sessionDate, paymentMap, paymentMonth, coachAttendanceMap, coachReplacements, coachPaymentMap);
@@ -148,14 +156,20 @@ export const PaymentTracker: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Students / Coaches tab toggle */}
-      <div className="flex gap-2">
-        {(['students', 'coaches'] as const).map(tab => (
-          <button key={tab} onClick={() => setActiveTab(tab)}
-            className={`px-5 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === tab ? 'bg-primary text-white shadow-sm' : 'bg-surface-container-low text-on-surface-variant'}`}>
-            {tab === 'students' ? `Students (${paidCount}/${students.length})` : `Coaches (${coaches.filter(c => coachPaymentMap[c.id] === 'paid').length}/${coaches.length})`}
-          </button>
-        ))}
+      {/* Tab toggle */}
+      <div className="flex gap-2 flex-wrap">
+        <button onClick={() => setActiveTab('students')}
+          className={`px-5 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === 'students' ? 'bg-primary text-white shadow-sm' : 'bg-surface-container-low text-on-surface-variant'}`}>
+          Students ({paidCount}/{activeStudents.length})
+        </button>
+        <button onClick={() => setActiveTab('coaches')}
+          className={`px-5 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === 'coaches' ? 'bg-primary text-white shadow-sm' : 'bg-surface-container-low text-on-surface-variant'}`}>
+          Coaches ({coaches.filter(c => coachPaymentMap[c.id] === 'paid').length}/{coaches.length})
+        </button>
+        <button onClick={() => setActiveTab('summary')}
+          className={`px-5 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === 'summary' ? 'bg-primary text-white shadow-sm' : 'bg-surface-container-low text-on-surface-variant'}`}>
+          Summary
+        </button>
       </div>
 
       {/* ── STUDENTS TAB ── */}
@@ -314,6 +328,150 @@ export const PaymentTracker: React.FC<Props> = ({
             </div>
           )}
         </>;
+      })()}
+
+      {/* ── SUMMARY TAB ── */}
+      {activeTab === 'summary' && (() => {
+        // Revenue: sum of monthlyFee for paid, non-break students
+        const revenue = students
+          .filter(s => !isOnBreakThisMonth(s) && paymentMap[s.id] === 'paid')
+          .reduce((sum, s) => sum + (s.monthlyFee ?? 0), 0);
+        const revenueUnknown = students
+          .filter(s => !isOnBreakThisMonth(s) && paymentMap[s.id] === 'paid' && s.monthlyFee == null)
+          .length;
+
+        // Coach costs
+        const coachCosts = coaches.reduce((sum, c) => {
+          const classes = monthlyCoachClassCounts[c.id] ?? 0;
+          return sum + (c.ratePerClass != null ? c.ratePerClass * classes : 0);
+        }, 0);
+        const coachCostUnknown = coaches.filter(c => c.ratePerClass == null && (monthlyCoachClassCounts[c.id] ?? 0) > 0).length;
+
+        // Other expenses
+        const otherCosts = expenses.reduce((sum, e) => sum + e.amount, 0);
+
+        const totalCosts = coachCosts + otherCosts;
+        const netProfit = revenue - totalCosts;
+
+        return (
+          <div className="space-y-6">
+            {/* Net profit hero */}
+            <div className={`p-6 rounded-3xl ${netProfit >= 0 ? 'bg-secondary-container/30' : 'bg-tertiary-container/20'}`}>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-outline mb-2">Net Profit — {monthLabel}</p>
+              <p className={`text-5xl font-black ${netProfit >= 0 ? 'text-secondary' : 'text-tertiary'}`}>
+                {netProfit >= 0 ? '+' : ''}RM{netProfit.toFixed(2)}
+              </p>
+              <p className="text-sm text-outline mt-2">RM{revenue.toFixed(2)} revenue − RM{totalCosts.toFixed(2)} costs</p>
+            </div>
+
+            {/* Breakdown cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-secondary-container/20 p-5 rounded-2xl">
+                <div className="flex items-center gap-2 mb-3">
+                  <TrendingUp size={16} className="text-secondary" />
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-outline">Revenue</p>
+                </div>
+                <p className="text-3xl font-black text-secondary">RM{revenue.toFixed(2)}</p>
+                <p className="text-xs text-outline mt-1">
+                  {students.filter(s => !isOnBreakThisMonth(s) && paymentMap[s.id] === 'paid').length} students paid
+                  {revenueUnknown > 0 && ` · ${revenueUnknown} with no fee set`}
+                </p>
+              </div>
+              <div className="bg-tertiary-container/15 p-5 rounded-2xl">
+                <div className="flex items-center gap-2 mb-3">
+                  <TrendingDown size={16} className="text-tertiary" />
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-outline">Coach Costs</p>
+                </div>
+                <p className="text-3xl font-black text-tertiary">RM{coachCosts.toFixed(2)}</p>
+                <p className="text-xs text-outline mt-1">
+                  {coaches.length} coaches
+                  {coachCostUnknown > 0 && ` · ${coachCostUnknown} without rate`}
+                </p>
+              </div>
+              <div className="bg-surface-container-low p-5 rounded-2xl">
+                <div className="flex items-center gap-2 mb-3">
+                  <Minus size={16} className="text-outline" />
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-outline">Other Expenses</p>
+                </div>
+                <p className="text-3xl font-black text-on-surface">RM{otherCosts.toFixed(2)}</p>
+                <p className="text-xs text-outline mt-1">{expenses.length} item{expenses.length !== 1 ? 's' : ''}</p>
+              </div>
+            </div>
+
+            {/* Coach cost breakdown */}
+            {coaches.length > 0 && (
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-outline mb-3">Coach Breakdown</p>
+                <div className="space-y-2">
+                  {coaches.map(c => {
+                    const classes = monthlyCoachClassCounts[c.id] ?? 0;
+                    const total = c.ratePerClass != null ? c.ratePerClass * classes : null;
+                    return (
+                      <div key={c.id} className="flex items-center justify-between bg-surface-container-low px-4 py-3 rounded-xl text-sm">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-secondary-container flex items-center justify-center text-xs font-bold text-on-secondary-container">{c.initials}</div>
+                          <span className="font-semibold text-on-surface">{c.name}</span>
+                        </div>
+                        <span className="text-outline text-xs">
+                          {c.ratePerClass != null
+                            ? `RM${c.ratePerClass} × ${classes} = `
+                            : `${classes} classes · `}
+                          <span className="font-bold text-on-surface">{total != null ? `RM${total}` : 'no rate'}</span>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Other expenses list + add form */}
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-outline mb-3">Other Expenses</p>
+              <div className="space-y-2 mb-3">
+                {expenses.length === 0 && (
+                  <p className="text-sm text-outline bg-surface-container-low rounded-xl px-4 py-3">No expenses added yet.</p>
+                )}
+                {expenses.map(e => (
+                  <div key={e.id} className="flex items-center justify-between bg-surface-container-low px-4 py-3 rounded-xl">
+                    <span className="font-medium text-on-surface text-sm">{e.label}</span>
+                    <div className="flex items-center gap-3">
+                      <span className="font-bold text-on-surface text-sm">RM{e.amount.toFixed(2)}</span>
+                      <button onClick={() => onRemoveExpense(e.id)} className="p-1 text-outline hover:text-tertiary transition-colors">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {/* Add expense form */}
+              <div className="flex gap-2 flex-wrap items-end">
+                <div className="flex-1 min-w-[140px]">
+                  <label className="block text-[10px] text-outline mb-1">Description</label>
+                  <input value={newExpenseLabel} onChange={e => setNewExpenseLabel(e.target.value)}
+                    placeholder="e.g. Court Rental"
+                    className="w-full px-3 py-2 bg-surface-container-high rounded-xl text-sm font-medium text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                </div>
+                <div className="w-28">
+                  <label className="block text-[10px] text-outline mb-1">Amount (RM)</label>
+                  <input type="number" min="0" step="0.01" value={newExpenseAmount} onChange={e => setNewExpenseAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2 bg-surface-container-high rounded-xl text-sm font-medium text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                </div>
+                <button
+                  onClick={() => {
+                    if (!newExpenseLabel.trim() || !newExpenseAmount) return;
+                    onAddExpense({ id: Date.now().toString(), label: newExpenseLabel.trim(), amount: Number(newExpenseAmount) });
+                    setNewExpenseLabel(''); setNewExpenseAmount('');
+                  }}
+                  className="flex items-center gap-1 px-4 py-2 bg-primary text-white font-bold text-sm rounded-xl active:scale-95 transition-transform shadow-sm"
+                >
+                  <Plus size={14} />Add
+                </button>
+              </div>
+            </div>
+          </div>
+        );
       })()}
 
     </div>

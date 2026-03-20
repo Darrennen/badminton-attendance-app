@@ -25,6 +25,12 @@ export interface ScheduledReplacement {
   coachId: string;
 }
 
+export interface MonthlyExpense {
+  id: string;
+  label: string;
+  amount: number;
+}
+
 export interface RegisteredStudent {
   id: string;
   name: string;
@@ -37,6 +43,7 @@ export interface RegisteredStudent {
   sessionCoachMap: Record<string, string>; // sessionId → coachId
   avatar?: string;
   group?: string;
+  monthlyFee?: number;
   breakPeriods?: BreakPeriod[];
   registeredAt: string;
 }

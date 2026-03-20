@@ -23,6 +23,7 @@ const blank = () => ({
   sessionIds: [] as string[],
   sessionCoachMap: {} as Record<string, string>,
   group: '',
+  monthlyFee: '' as string | number,
   breakPeriods: [] as BreakPeriod[],
 });
 
@@ -70,6 +71,7 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, coaches,
       sessionIds: [...s.sessionIds],
       sessionCoachMap: { ...(s.sessionCoachMap ?? {}) },
       group: s.group ?? '',
+      monthlyFee: s.monthlyFee ?? '',
       breakPeriods: [...(s.breakPeriods ?? [])],
     });
     setNewBreakFrom(''); setNewBreakTo('');
@@ -92,6 +94,8 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, coaches,
     if (!form.icNumber.trim()) { setError('IC number is required.'); return; }
     setError('');
 
+    const monthlyFee = form.monthlyFee !== '' ? Number(form.monthlyFee) : undefined;
+
     if (editingId) {
       const existing = students.find(s => s.id === editingId)!;
       onUpdate({
@@ -104,6 +108,7 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, coaches,
         sessionIds: form.sessionIds,
         sessionCoachMap: form.sessionCoachMap,
         group: form.group.trim() || undefined,
+        monthlyFee,
         breakPeriods: form.breakPeriods,
       });
       setSuccessMsg(`${form.name.trim()} updated successfully!`);
@@ -120,6 +125,7 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, coaches,
         sessionIds: form.sessionIds,
         sessionCoachMap: form.sessionCoachMap,
         group: form.group.trim() || undefined,
+        monthlyFee,
         breakPeriods: [],
         registeredAt: new Date().toISOString(),
       });
@@ -202,6 +208,13 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, coaches,
                 <input value={form.group} onChange={e => setForm(p => ({ ...p, group: e.target.value }))}
                   className="w-full px-4 py-3 bg-surface-container-high rounded-xl text-on-surface font-medium focus:outline-none focus:ring-2 focus:ring-primary/30 text-sm"
                   placeholder="e.g. Beginner, U15, Adults" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-outline mb-1.5">Monthly Fee (RM)</label>
+                <input type="number" min="0" step="0.01" value={form.monthlyFee}
+                  onChange={e => setForm(p => ({ ...p, monthlyFee: e.target.value }))}
+                  className="w-full px-4 py-3 bg-surface-container-high rounded-xl text-on-surface font-medium focus:outline-none focus:ring-2 focus:ring-primary/30 text-sm"
+                  placeholder="e.g. 150" />
               </div>
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-outline mb-1.5">
