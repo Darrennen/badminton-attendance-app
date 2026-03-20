@@ -1,32 +1,85 @@
 @import "tailwindcss";
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Inter:wght@400;500;600&display=swap');
 
+/* ── Theme tokens — map Tailwind color names to CSS custom properties ────────── */
 @theme {
   --font-headline: "Manrope", ui-sans-serif, system-ui, sans-serif;
   --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-label: "Inter", ui-sans-serif, system-ui, sans-serif;
 
-  --color-primary: #00478d;
-  --color-primary-container: #005eb8;
-  --color-on-primary-container: #c8daff;
-  --color-secondary: #1b6d24;
-  --color-secondary-container: #a0f399;
-  --color-on-secondary-container: #217128;
-  --color-tertiary: #940010;
-  --color-tertiary-container: #bb1b21;
-  --color-on-tertiary-container: #ffceca;
-  --color-background: #f7fafc;
-  --color-surface: #f7fafc;
-  --color-surface-container-low: #f1f4f6;
-  --color-surface-container-high: #e5e9eb;
-  --color-surface-container-highest: #e0e3e5;
-  --color-surface-container-lowest: #ffffff;
-  --color-on-surface: #181c1e;
-  --color-on-surface-variant: #424752;
-  --color-outline: #727783;
-  --color-outline-variant: #c2c6d4;
-  --color-primary-fixed: #d6e3ff;
-  --color-on-primary-fixed: #001b3d;
+  --color-primary:                var(--c-primary);
+  --color-primary-container:      var(--c-primary-container);
+  --color-on-primary-container:   var(--c-on-primary-container);
+  --color-secondary:              var(--c-secondary);
+  --color-secondary-container:    var(--c-secondary-container);
+  --color-on-secondary-container: var(--c-on-secondary-container);
+  --color-tertiary:               var(--c-tertiary);
+  --color-tertiary-container:     var(--c-tertiary-container);
+  --color-on-tertiary-container:  var(--c-on-tertiary-container);
+  --color-background:             var(--c-background);
+  --color-surface:                var(--c-surface);
+  --color-surface-container-low:      var(--c-surface-container-low);
+  --color-surface-container-high:     var(--c-surface-container-high);
+  --color-surface-container-highest:  var(--c-surface-container-highest);
+  --color-surface-container-lowest:   var(--c-surface-container-lowest);
+  --color-on-surface:             var(--c-on-surface);
+  --color-on-surface-variant:     var(--c-on-surface-variant);
+  --color-outline:                var(--c-outline);
+  --color-outline-variant:        var(--c-outline-variant);
+  --color-primary-fixed:          var(--c-primary-fixed);
+  --color-on-primary-fixed:       var(--c-on-primary-fixed);
+}
+
+/* ── Light mode (default) ───────────────────────────────────────────────────── */
+:root {
+  --c-primary:                #00478d;
+  --c-primary-container:      #005eb8;
+  --c-on-primary-container:   #c8daff;
+  --c-secondary:              #1b6d24;
+  --c-secondary-container:    #a0f399;
+  --c-on-secondary-container: #217128;
+  --c-tertiary:               #940010;
+  --c-tertiary-container:     #bb1b21;
+  --c-on-tertiary-container:  #ffceca;
+  --c-background:             #f7fafc;
+  --c-surface:                #f7fafc;
+  --c-surface-container-low:      #f1f4f6;
+  --c-surface-container-high:     #e5e9eb;
+  --c-surface-container-highest:  #e0e3e5;
+  --c-surface-container-lowest:   #ffffff;
+  --c-on-surface:             #181c1e;
+  --c-on-surface-variant:     #424752;
+  --c-outline:                #727783;
+  --c-outline-variant:        #c2c6d4;
+  --c-primary-fixed:          #d6e3ff;
+  --c-on-primary-fixed:       #001b3d;
+  --c-glass:                  rgba(247, 250, 252, 0.85);
+}
+
+/* ── Dark mode ──────────────────────────────────────────────────────────────── */
+.dark {
+  --c-primary:                #9ecbff;
+  --c-primary-container:      #004882;
+  --c-on-primary-container:   #d3e4ff;
+  --c-secondary:              #7edd7e;
+  --c-secondary-container:    #1a4d22;
+  --c-on-secondary-container: #a0f399;
+  --c-tertiary:               #ff8a8a;
+  --c-tertiary-container:     #6b0008;
+  --c-on-tertiary-container:  #ffceca;
+  --c-background:             #101418;
+  --c-surface:                #101418;
+  --c-surface-container-low:      #191d22;
+  --c-surface-container-high:     #22272d;
+  --c-surface-container-highest:  #2c3138;
+  --c-surface-container-lowest:   #0a0d11;
+  --c-on-surface:             #dde3ea;
+  --c-on-surface-variant:     #c1c7cf;
+  --c-outline:                #8b9099;
+  --c-outline-variant:        #41484f;
+  --c-primary-fixed:          #1e3a5f;
+  --c-on-primary-fixed:       #cfe0ff;
+  --c-glass:                  rgba(16, 20, 24, 0.9);
 }
 
 @layer base {
@@ -39,9 +92,14 @@
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
 .glass-header {
-  @apply sticky top-0 w-full z-50 bg-white/80 backdrop-blur-md;
+  background: var(--c-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  @apply sticky top-0 w-full z-50;
 }
 
-.tonal-layering {
-  background: linear-gradient(180deg, rgba(247, 250, 252, 0) 0%, rgba(247, 250, 252, 1) 100%);
+.glass-bottom {
+  background: var(--c-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }

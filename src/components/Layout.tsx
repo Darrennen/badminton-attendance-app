@@ -1,5 +1,5 @@
-import React from 'react';
-import { LayoutDashboard, CalendarDays, UserPlus, UserCircle, Layers, CreditCard } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { LayoutDashboard, CalendarDays, UserPlus, UserCircle, CreditCard, Sun, Moon } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface LayoutProps {
@@ -10,6 +10,17 @@ interface LayoutProps {
 }
 
 export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, title }) => {
+  const [dark, setDark] = useState(() => {
+    const saved = localStorage.getItem('theme');
+    if (saved) return saved === 'dark';
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark);
+    localStorage.setItem('theme', dark ? 'dark' : 'light');
+  }, [dark]);
+
   const topNav = [
     { id: 'dashboard', label: 'Dashboard' },
     { id: 'sessions', label: 'Attendance' },
@@ -30,23 +41,32 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
   return (
     <div className="min-h-screen bg-background pb-32">
       {/* Top App Bar */}
-      <header className="glass-header flex items-center justify-between px-6 h-16 shadow-none border-b border-outline-variant/10 sticky top-0 z-40">
+      <header className="glass-header flex items-center justify-between px-6 h-16 border-b border-outline-variant/10">
         <h1 className="font-headline font-bold text-lg tracking-tight text-primary">{title}</h1>
-        <nav className="hidden md:flex gap-1">
-          {topNav.map(item => (
-            <button
-              key={item.id}
-              onClick={() => setActiveTab(item.id)}
-              className={`px-4 py-2 rounded-xl text-sm font-bold transition-colors ${
-                activeTab === item.id
-                  ? 'bg-primary/10 text-primary'
-                  : 'text-outline hover:text-primary hover:bg-surface-container-low'
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
-        </nav>
+        <div className="flex items-center gap-1">
+          <nav className="hidden md:flex gap-1">
+            {topNav.map(item => (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                className={`px-4 py-2 rounded-xl text-sm font-bold transition-colors ${
+                  activeTab === item.id
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-outline hover:text-primary hover:bg-surface-container-low'
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
+          <button
+            onClick={() => setDark(d => !d)}
+            className="ml-2 p-2 rounded-xl text-outline hover:text-on-surface hover:bg-surface-container-low transition-colors"
+            title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {dark ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
+        </div>
       </header>
 
       {/* Main Content */}
@@ -62,19 +82,26 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
       </main>
 
       {/* Bottom Navigation (Mobile) */}
-      <nav className="md:hidden fixed bottom-0 left-0 w-full z-50 bg-white/90 backdrop-blur-md flex justify-around items-center px-2 pb-6 pt-3 shadow-[0_-4px_24px_rgba(24,28,30,0.08)] rounded-t-3xl">
+      <nav className="md:hidden fixed bottom-0 left-0 w-full z-50 glass-bottom flex justify-around items-center px-2 pb-6 pt-3 shadow-[0_-4px_24px_rgba(0,0,0,0.15)] rounded-t-3xl border-t border-outline-variant/10">
         {bottomNav.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             onClick={() => setActiveTab(id)}
             className={`flex flex-col items-center justify-center px-3 py-2 rounded-2xl transition-all ${
-              activeTab === id ? 'bg-blue-100 text-primary' : 'text-outline'
+              activeTab === id ? 'bg-primary/10 text-primary' : 'text-outline'
             }`}
           >
             <Icon size={20} />
             <span className="text-[9px] font-bold uppercase tracking-wider mt-1">{label}</span>
           </button>
         ))}
+        <button
+          onClick={() => setDark(d => !d)}
+          className="flex flex-col items-center justify-center px-3 py-2 rounded-2xl transition-all text-outline"
+        >
+          {dark ? <Sun size={20} /> : <Moon size={20} />}
+          <span className="text-[9px] font-bold uppercase tracking-wider mt-1">{dark ? 'Light' : 'Dark'}</span>
+        </button>
       </nav>
     </div>
   );
