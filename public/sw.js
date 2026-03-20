@@ -1,66 +1,49 @@
-const CACHE_NAME = 'badminton-attendance-v3';
-
-// Add all the URLs you want cached for offline use
-const urlsToCache = [
-  '/',
-  '/index.html',
-  '/static/js/bundle.js',
-  '/static/css/main.css',
+const CACHE_NAME = 'badminton-attendance-v4';
+const STATIC_ASSETS = [
   '/icons/icon-192.png',
   '/icons/icon-512.png',
-  '/manifest.json'
+  '/manifest.json',
 ];
 
-// Install: cache core assets
+// Install: pre-cache only icons/manifest (not JS/HTML — those change each deploy)
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log('Opened cache');
-      return cache.addAll(urlsToCache).catch((err) => {
-        // Don't fail install if some assets aren't available yet
-        console.warn('Some assets failed to cache:', err);
-      });
-    })
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS).catch(() => {}))
   );
   self.skipWaiting();
 });
 
-// Activate: clean up old caches
+// Activate: wipe all old caches immediately
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames
-          .filter((name) => name !== CACHE_NAME)
-          .map((name) => caches.delete(name))
-      );
-    })
+    caches.keys().then((names) =>
+      Promise.all(names.filter((n) => n !== CACHE_NAME).map((n) => caches.delete(n)))
+    )
   );
   self.clients.claim();
 });
 
-// Fetch: serve from cache first, fall back to network
+// Fetch strategy:
+// - Navigation (HTML pages) → network first, no caching, so updates are instant
+// - Everything else → network first, fall back to cache for offline
 self.addEventListener('fetch', (event) => {
+  if (event.request.mode === 'navigate') {
+    // Always fetch fresh HTML from network
+    event.respondWith(
+      fetch(event.request).catch(() => caches.match('/index.html'))
+    );
+    return;
+  }
+
   event.respondWith(
-    caches.match(event.request).then((response) => {
-      if (response) {
-        return response;
-      }
-      return fetch(event.request).then((networkResponse) => {
-        // Cache new requests dynamically
-        if (networkResponse && networkResponse.status === 200) {
-          const responseClone = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseClone);
-          });
+    fetch(event.request)
+      .then((response) => {
+        if (response && response.status === 200) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
         }
-        return networkResponse;
-      });
-    }).catch(() => {
-      // Offline fallback - return cached index.html for navigation requests
-      if (event.request.mode === 'navigate') {
-        return caches.match('/index.html');
-      }
-    })
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
