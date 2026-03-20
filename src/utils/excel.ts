@@ -4,8 +4,9 @@ import { Student, RegisteredStudent, RegisteredCoach, TrainingSession, PaymentSt
 export type ReplacementStudent = Student & { sessionId: string; coachId: string };
 export type CoachReplacement = { coachId: string; replacedById: string; sessionId: string };
 
-// Auto-size columns + optionally freeze header + first N columns
-function styleSheet(ws: XLSX.WorkSheet, rows: Record<string, string>[], fixedCols: number) {
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function styleSheet(ws: XLSX.WorkSheet, rows: Record<string, unknown>[], fixedCols: number) {
   if (rows.length === 0) return;
   const keys = Object.keys(rows[0]);
   ws['!cols'] = keys.map((key, i) => {
@@ -13,11 +14,83 @@ function styleSheet(ws: XLSX.WorkSheet, rows: Record<string, string>[], fixedCol
     return { wch: (i < fixedCols ? Math.max(maxLen, 18) : Math.max(maxLen, 10)) + 2 };
   });
   if (fixedCols > 0) ws['!freeze'] = { xSplit: fixedCols, ySplit: 1 };
+  if (ws['!ref']) ws['!autofilter'] = { ref: ws['!ref'] };
 }
 
 function upsertSheet(wb: XLSX.WorkBook, sheetName: string, ws: XLSX.WorkSheet) {
   wb.Sheets[sheetName] = ws;
   if (!wb.SheetNames.includes(sheetName)) wb.SheetNames.push(sheetName);
+}
+
+/** Move a sheet to position 0 in the tab bar */
+function pinSheetFirst(wb: XLSX.WorkBook, sheetName: string) {
+  wb.SheetNames = [sheetName, ...wb.SheetNames.filter(n => n !== sheetName)];
+}
+
+const sessLabels = (ids: string[], sessions: TrainingSession[]) =>
+  ids.map(sid => sessions.find(x => x.id === sid)?.name ?? '').filter(Boolean).join(', ');
+
+const isOnBreakInMonth = (s: RegisteredStudent, month: string) =>
+  s.breakPeriods?.some(bp => bp.from <= `${month}-31` && bp.to >= `${month}-01`) ?? false;
+
+// ─── Overview sheet ───────────────────────────────────────────────────────────
+function buildOverviewSheet(
+  wb: XLSX.WorkBook,
+  sessions: TrainingSession[],
+  allStudents: RegisteredStudent[],
+  coaches: RegisteredCoach[],
+  paymentMap: Record<string, PaymentStatus>,
+  coachPaymentMap: Record<string, PaymentStatus>,
+  expenses: MonthlyExpense[],
+  classCounts: Record<string, number>,
+  sessionDate: string,
+  paymentMonth: string,
+) {
+  const monthLabel = new Date(`${paymentMonth}-01`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  const exportedAt  = new Date().toLocaleString('en-GB');
+
+  const paidStudents   = allStudents.filter(s => !isOnBreakInMonth(s, paymentMonth) && paymentMap[s.id] === 'paid').length;
+  const paidCoaches    = coaches.filter(c => coachPaymentMap[c.id] === 'paid').length;
+  const totalRevenue   = allStudents.filter(s => !isOnBreakInMonth(s, paymentMonth) && paymentMap[s.id] === 'paid').reduce((n, s) => n + (s.monthlyFee ?? 0), 0);
+  const totalCoachCost = coaches.reduce((n, c) => n + (c.ratePerClass != null ? c.ratePerClass * (classCounts[c.id] ?? 0) : 0), 0);
+  const totalOther     = expenses.reduce((n, e) => n + e.amount, 0);
+  const netProfit      = totalRevenue - totalCoachCost - totalOther;
+
+  const E = '';
+  const aoa: (string | number)[][] = [
+    ['BADMINTON ACADEMY — WORKBOOK OVERVIEW'],
+    [`Exported: ${exportedAt}`],
+    [`Attendance Date: ${sessionDate}`, E, `Payment Month: ${monthLabel}`],
+    [E],
+
+    ['WHAT\'S IN THIS FILE', 'Sheet Name', 'Description'],
+    ['Attendance (per session)', sessions.map(s => s.name).join(', '), 'Each session has its own sheet — rows = students, columns = dates'],
+    ['Replacements',            'Replacements',      'All ad-hoc replacement students across all dates'],
+    ['Coach Attendance',        'Coach Attendance',   'Rows = coaches, columns = dates with Present / Absent / On Leave'],
+    ['Student Payments',        'Student Payments',   'Rows = students, columns = months with Paid / Unpaid + monthly fee'],
+    ['Coach Payments',          'Coach Payments',     'Rows = coaches, columns = months + rate, classes, total cost'],
+    ['Financial Audit',         `Audit ${paymentMonth}`, 'Full revenue, cost and net profit breakdown for the month'],
+    [E],
+
+    ['QUICK STATS', 'Value'],
+    ['Total Sessions Configured', sessions.length],
+    ['Total Students Registered',  allStudents.length],
+    ['Total Coaches Registered',   coaches.length],
+    [E],
+
+    [`PAYMENTS (${monthLabel})`, 'Value'],
+    ['Students Paid',            `${paidStudents} / ${allStudents.filter(s => !isOnBreakInMonth(s, paymentMonth)).length}`],
+    ['Coaches Paid',             `${paidCoaches} / ${coaches.length}`],
+    ['Total Revenue Collected',  `RM ${totalRevenue.toFixed(2)}`],
+    ['Total Coach Costs',        `RM ${totalCoachCost.toFixed(2)}`],
+    ['Total Other Expenses',     `RM ${totalOther.toFixed(2)}`],
+    ['Net Profit / Loss',        `RM ${netProfit.toFixed(2)}`],
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{ wch: 36 }, { wch: 40 }, { wch: 55 }];
+  upsertSheet(wb, 'Overview', ws);
+  pinSheetFirst(wb, 'Overview');
 }
 
 // ─── Student attendance sheets ────────────────────────────────────────────────
@@ -37,7 +110,11 @@ function buildAttendanceSheets(
 
   sessions.forEach(sess => {
     const sheetName = sess.name.slice(0, 31);
-    const sessStudents = allRegisteredStudents.filter(s => s.sessionIds.includes(sess.id));
+    // Only students enrolled in this session, sorted A-Z
+    const sessStudents = allRegisteredStudents
+      .filter(s => s.sessionIds.includes(sess.id))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
     let rows: Record<string, string>[];
 
     if (wb.SheetNames.includes(sheetName)) {
@@ -51,47 +128,58 @@ function buildAttendanceSheets(
         }
         return row;
       });
-      sessStudents.filter(s => !updatedIds.has(s.studentId)).forEach(s =>
-        rows.push({ Name: s.name, 'Student ID': s.studentId, Group: s.group ?? '', [sessionDate]: statusLabel(s.id) })
-      );
+      sessStudents.filter(s => !updatedIds.has(s.studentId)).forEach(s => {
+        const coachId = (s.sessionCoachMap ?? {})[sess.id];
+        const coachName = coaches.find(c => c.id === coachId)?.name ?? '';
+        rows.push({ Name: s.name, 'Student ID': s.studentId, Group: s.group ?? '', Coach: coachName, [sessionDate]: statusLabel(s.id) });
+      });
     } else {
-      rows = sessStudents.map(s => ({
-        Name: s.name, 'Student ID': s.studentId, Group: s.group ?? '', [sessionDate]: statusLabel(s.id),
-      }));
+      rows = sessStudents.map(s => {
+        const coachId = (s.sessionCoachMap ?? {})[sess.id];
+        const coachName = coaches.find(c => c.id === coachId)?.name ?? '';
+        return { Name: s.name, 'Student ID': s.studentId, Group: s.group ?? '', Coach: coachName, [sessionDate]: statusLabel(s.id) };
+      });
     }
 
-    upsertSheet(wb, sheetName, XLSX.utils.json_to_sheet(rows));
-    styleSheet(wb.Sheets[sheetName], rows, 3);
+    const ws = XLSX.utils.json_to_sheet(rows);
+    upsertSheet(wb, sheetName, ws);
+    styleSheet(wb.Sheets[sheetName], rows, 4);
   });
 
-  // Student replacements — flat sheet
+  // Replacements — flat sheet, sorted by date desc
   if (replacementStudents.length > 0 || wb.SheetNames.includes('Replacements')) {
     const todayRows = replacementStudents.map(r => {
       const sess = sessions.find(x => x.id === r.sessionId);
       const coach = coaches.find(x => x.id === r.coachId);
       const st = r.status === 'none' ? 'Unmarked' : r.status.charAt(0).toUpperCase() + r.status.slice(1);
       return {
-        Date: sessionDate, Name: r.name, 'Student ID': r.studentId, Group: r.group ?? '',
+        Date: sessionDate,
+        Name: r.name,
+        'Student ID': r.studentId,
+        Group: r.group ?? '',
         Session: sess ? `${sess.name} (${sess.day})` : 'Unspecified',
-        Coach: coach?.name ?? '', Status: st,
+        'Session Day': sess?.day ?? '',
+        Coach: coach?.name ?? '',
+        Status: st,
       };
     });
     let replRows: Record<string, string>[];
     if (wb.SheetNames.includes('Replacements')) {
       const existing = XLSX.utils.sheet_to_json<Record<string, string>>(wb.Sheets['Replacements'], { defval: '' });
-      replRows = [...existing.filter(r => r['Date'] !== sessionDate), ...todayRows];
+      replRows = [...existing.filter(r => r['Date'] !== sessionDate), ...todayRows]
+        .sort((a, b) => b['Date'].localeCompare(a['Date'])); // newest first
     } else {
       replRows = todayRows;
     }
     if (replRows.length > 0) {
-      upsertSheet(wb, 'Replacements', XLSX.utils.json_to_sheet(replRows));
+      const ws = XLSX.utils.json_to_sheet(replRows);
+      upsertSheet(wb, 'Replacements', ws);
       styleSheet(wb.Sheets['Replacements'], replRows, 0);
     }
   }
 }
 
 // ─── Coach attendance sheet ───────────────────────────────────────────────────
-// One pivot sheet "Coach Attendance": rows = coaches, columns = Name|Sessions|date1|date2|…
 function buildCoachAttendanceSheet(
   wb: XLSX.WorkBook,
   coaches: RegisteredCoach[],
@@ -109,15 +197,14 @@ function buildCoachAttendanceSheet(
     return st.charAt(0).toUpperCase() + st.slice(1);
   };
 
-  const sessionNames = (c: RegisteredCoach) =>
-    c.sessionIds.map(sid => sessions.find(x => x.id === sid)?.name ?? '').filter(Boolean).join(', ');
-
   const replNote = (id: string) => {
     const repl = coachReplacements.find(r => r.coachId === id);
     if (!repl) return '';
     const sub = coaches.find(c => c.id === repl.replacedById);
     return sub ? `→ ${sub.name}` : '';
   };
+
+  const sortedCoaches = [...coaches].sort((a, b) => a.name.localeCompare(b.name));
 
   let rows: Record<string, string>[];
   if (wb.SheetNames.includes(sheetName)) {
@@ -132,19 +219,20 @@ function buildCoachAttendanceSheet(
       }
       return row;
     });
-    coaches.filter(c => !updatedIds.has(c.id)).forEach(c => {
+    sortedCoaches.filter(c => !updatedIds.has(c.id)).forEach(c => {
       const note = replNote(c.id);
-      rows.push({ Name: c.name, Sessions: sessionNames(c), [sessionDate]: statusLabel(c.id) + (note ? ` (${note})` : '') });
+      rows.push({ Name: c.name, Sessions: sessLabels(c.sessionIds, sessions), 'Rate (RM/class)': c.ratePerClass != null ? String(c.ratePerClass) : '', [sessionDate]: statusLabel(c.id) + (note ? ` (${note})` : '') });
     });
   } else {
-    rows = coaches.map(c => {
+    rows = sortedCoaches.map(c => {
       const note = replNote(c.id);
-      return { Name: c.name, Sessions: sessionNames(c), [sessionDate]: statusLabel(c.id) + (note ? ` (${note})` : '') };
+      return { Name: c.name, Sessions: sessLabels(c.sessionIds, sessions), 'Rate (RM/class)': c.ratePerClass != null ? String(c.ratePerClass) : '', [sessionDate]: statusLabel(c.id) + (note ? ` (${note})` : '') };
     });
   }
 
-  upsertSheet(wb, sheetName, XLSX.utils.json_to_sheet(rows));
-  styleSheet(wb.Sheets[sheetName], rows, 2);
+  const ws = XLSX.utils.json_to_sheet(rows);
+  upsertSheet(wb, sheetName, ws);
+  styleSheet(wb.Sheets[sheetName], rows, 3);
 }
 
 // ─── Student payment sheet ────────────────────────────────────────────────────
@@ -156,9 +244,12 @@ function buildPaymentSheet(
   paymentMonth: string,
 ) {
   const sheetName = 'Student Payments';
-  const statusLabel = (id: string) => paymentMap[id] === 'paid' ? 'Paid' : 'Unpaid';
-  const sessionNames = (s: RegisteredStudent) =>
-    s.sessionIds.map(sid => sessions.find(x => x.id === sid)?.name ?? '').filter(Boolean).join(', ');
+  const statusLabel = (s: RegisteredStudent) => {
+    if (isOnBreakInMonth(s, paymentMonth)) return 'On Break';
+    return paymentMap[s.id] === 'paid' ? 'Paid' : 'Unpaid';
+  };
+
+  const sortedStudents = [...allRegisteredStudents].sort((a, b) => a.name.localeCompare(b.name));
 
   let rows: Record<string, string>[];
   if (wb.SheetNames.includes(sheetName)) {
@@ -166,19 +257,23 @@ function buildPaymentSheet(
     const updatedIds = new Set<string>();
     rows = existing.map(row => {
       const rs = allRegisteredStudents.find(s => s.studentId === row['Student ID']);
-      if (rs) { updatedIds.add(rs.studentId); return { ...row, [paymentMonth]: statusLabel(rs.id) }; }
+      if (rs) {
+        updatedIds.add(rs.studentId);
+        return { ...row, 'Monthly Fee (RM)': rs.monthlyFee != null ? String(rs.monthlyFee) : '', [paymentMonth]: statusLabel(rs) };
+      }
       return row;
     });
-    allRegisteredStudents.filter(s => !updatedIds.has(s.studentId)).forEach(s =>
-      rows.push({ Name: s.name, 'Student ID': s.studentId, Group: s.group ?? '', Sessions: sessionNames(s), [paymentMonth]: statusLabel(s.id) })
+    sortedStudents.filter(s => !updatedIds.has(s.studentId)).forEach(s =>
+      rows.push({ Name: s.name, 'Student ID': s.studentId, Group: s.group ?? '', Sessions: sessLabels(s.sessionIds, sessions), 'Monthly Fee (RM)': s.monthlyFee != null ? String(s.monthlyFee) : '', [paymentMonth]: statusLabel(s) })
     );
   } else {
-    rows = allRegisteredStudents.map(s => ({
-      Name: s.name, 'Student ID': s.studentId, Group: s.group ?? '', Sessions: sessionNames(s), [paymentMonth]: statusLabel(s.id),
+    rows = sortedStudents.map(s => ({
+      Name: s.name, 'Student ID': s.studentId, Group: s.group ?? '', Sessions: sessLabels(s.sessionIds, sessions), 'Monthly Fee (RM)': s.monthlyFee != null ? String(s.monthlyFee) : '', [paymentMonth]: statusLabel(s),
     }));
   }
 
-  upsertSheet(wb, sheetName, XLSX.utils.json_to_sheet(rows));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  upsertSheet(wb, sheetName, ws);
   styleSheet(wb.Sheets[sheetName], rows, 4);
 }
 
@@ -210,24 +305,23 @@ function buildCoachPaymentSheet(
 ) {
   const sheetName = 'Coach Payments';
   const statusLabel = (id: string) => coachPaymentMap[id] === 'paid' ? 'Paid' : 'Unpaid';
-  const sessionNames = (c: RegisteredCoach) =>
-    c.sessionIds.map(sid => sessions.find(x => x.id === sid)?.name ?? '').filter(Boolean).join(', ');
+  const sortedCoaches = [...coaches].sort((a, b) => a.name.localeCompare(b.name));
 
-  let rows: Record<string, string>[];
   const makeRow = (c: RegisteredCoach) => {
     const classes = classCounts[c.id] ?? 0;
-    const rate = c.ratePerClass ?? '';
-    const total = c.ratePerClass != null ? String(c.ratePerClass * classes) : '';
+    const rate = c.ratePerClass;
+    const total = rate != null ? String(rate * classes) : '';
     return {
       Name: c.name,
-      Sessions: sessionNames(c),
-      'Rate (RM/class)': rate !== '' ? String(rate) : '',
-      'Classes Attended': String(classes),
-      'Total (RM)': total,
+      Sessions: sessLabels(c.sessionIds, sessions),
+      'Rate (RM/class)': rate != null ? String(rate) : '',
+      [`Classes (${paymentMonth})`]: String(classes),
+      [`Total (RM) (${paymentMonth})`]: total,
       [paymentMonth]: statusLabel(c.id),
     };
   };
 
+  let rows: Record<string, string>[];
   if (wb.SheetNames.includes(sheetName)) {
     const existing = XLSX.utils.sheet_to_json<Record<string, string>>(wb.Sheets[sheetName], { defval: '' });
     const updatedIds = new Set<string>();
@@ -235,17 +329,20 @@ function buildCoachPaymentSheet(
       const c = coaches.find(x => x.name === row['Name']);
       if (c) {
         updatedIds.add(c.id);
-        return { ...makeRow(c), ...Object.fromEntries(Object.entries(row).filter(([k]) => k !== 'Name' && k !== 'Sessions' && k !== 'Rate (RM/class)' && k !== 'Classes Attended' && k !== 'Total (RM)')), ...{ [paymentMonth]: statusLabel(c.id) } };
+        const nr = makeRow(c);
+        // keep old month columns, update fixed cols + this month
+        return { ...row, 'Rate (RM/class)': nr['Rate (RM/class)'], [`Classes (${paymentMonth})`]: nr[`Classes (${paymentMonth})`], [`Total (RM) (${paymentMonth})`]: nr[`Total (RM) (${paymentMonth})`], [paymentMonth]: nr[paymentMonth] };
       }
       return row;
     });
-    coaches.filter(c => !updatedIds.has(c.id)).forEach(c => rows.push(makeRow(c)));
+    sortedCoaches.filter(c => !updatedIds.has(c.id)).forEach(c => rows.push(makeRow(c)));
   } else {
-    rows = coaches.map(makeRow);
+    rows = sortedCoaches.map(makeRow);
   }
 
-  upsertSheet(wb, sheetName, XLSX.utils.json_to_sheet(rows));
-  styleSheet(wb.Sheets[sheetName], rows, 5);
+  const ws = XLSX.utils.json_to_sheet(rows);
+  upsertSheet(wb, sheetName, ws);
+  styleSheet(wb.Sheets[sheetName], rows, 2);
 }
 
 // ─── Financial Audit sheet ────────────────────────────────────────────────────
@@ -261,101 +358,104 @@ function buildFinancialAuditSheet(
   paymentMonth: string,
 ) {
   const monthLabel = new Date(`${paymentMonth}-01`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }).toUpperCase();
-  const exportDate = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const exportDate = new Date().toLocaleString('en-GB');
 
-  const sessNames = (ids: string[]) =>
-    ids.map(sid => sessions.find(x => x.id === sid)?.name ?? '').filter(Boolean).join(', ');
-
-  const isOnBreak = (s: RegisteredStudent) =>
-    s.breakPeriods?.some(bp => bp.from <= `${paymentMonth}-31` && bp.to >= `${paymentMonth}-01`) ?? false;
-
-  // ── Revenue ──
+  // Revenue
   let totalRevenue = 0;
-  const studentRows = allRegisteredStudents.map(s => {
-    const onBreak = isOnBreak(s);
-    const paid = paymentMap[s.id] === 'paid';
-    const fee = s.monthlyFee ?? 0;
+  const sortedStudents = [...allRegisteredStudents].sort((a, b) => a.name.localeCompare(b.name));
+  const studentRows = sortedStudents.map(s => {
+    const onBreak = isOnBreakInMonth(s, paymentMonth);
+    const paid    = paymentMap[s.id] === 'paid';
+    const fee     = s.monthlyFee ?? 0;
     const collected = !onBreak && paid ? fee : 0;
     totalRevenue += collected;
-    const status = onBreak ? 'On Break (Exempt)' : paid ? 'Paid' : 'Unpaid';
-    return [s.name, s.studentId, s.group ?? '', sessNames(s.sessionIds), fee || '', status, collected || ''];
+    return {
+      'Student Name':    s.name,
+      'Student ID':      s.studentId,
+      'Group':           s.group ?? '',
+      'Sessions':        sessLabels(s.sessionIds, sessions),
+      'Monthly Fee (RM)': fee || '',
+      'Status':          onBreak ? 'On Break (Exempt)' : paid ? 'Paid' : 'Unpaid',
+      'Collected (RM)':  collected || '',
+    };
   });
-  const unpaidStudents = allRegisteredStudents.filter(s => !isOnBreak(s) && paymentMap[s.id] !== 'paid').length;
-  const potentialRevenue = allRegisteredStudents
-    .filter(s => !isOnBreak(s))
-    .reduce((sum, s) => sum + (s.monthlyFee ?? 0), 0);
-
-  // ── Coach costs ──
-  let totalCoachCosts = 0;
-  const coachRows = coaches.map(c => {
-    const classes = classCounts[c.id] ?? 0;
-    const rate = c.ratePerClass;
-    const total = rate != null ? rate * classes : null;
-    if (total != null) totalCoachCosts += total;
-    const payStatus = coachPaymentMap[c.id] === 'paid' ? 'Paid' : 'Unpaid';
-    return [c.name, sessNames(c.sessionIds), rate ?? 'No rate set', classes, total ?? 'N/A', payStatus];
-  });
-
-  // ── Other expenses ──
-  const totalOtherCosts = expenses.reduce((sum, e) => sum + e.amount, 0);
-  const expenseRows = expenses.map(e => [e.label, e.amount]);
-
-  const totalCosts = totalCoachCosts + totalOtherCosts;
-  const netProfit = totalRevenue - totalCosts;
+  const potentialRevenue = allRegisteredStudents.filter(s => !isOnBreakInMonth(s, paymentMonth)).reduce((n, s) => n + (s.monthlyFee ?? 0), 0);
   const outstanding = potentialRevenue - totalRevenue;
 
-  // ── Build array-of-arrays ──
-  const E = ''; // empty cell shorthand
+  // Coach costs
+  let totalCoachCosts = 0;
+  const sortedCoaches = [...coaches].sort((a, b) => a.name.localeCompare(b.name));
+  const coachRows = sortedCoaches.map(c => {
+    const classes = classCounts[c.id] ?? 0;
+    const rate    = c.ratePerClass;
+    const total   = rate != null ? rate * classes : null;
+    if (total != null) totalCoachCosts += total;
+    return {
+      'Coach Name':        c.name,
+      'Sessions Handled':  sessLabels(c.sessionIds, sessions),
+      'Rate / Class (RM)': rate ?? 'No rate set',
+      'Classes Attended':  classes,
+      'Total Cost (RM)':   total ?? 'N/A',
+      'Payment Status':    coachPaymentMap[c.id] === 'paid' ? 'Paid' : 'Unpaid',
+    };
+  });
+
+  // Other expenses
+  const totalOtherCosts = expenses.reduce((n, e) => n + e.amount, 0);
+  const expenseRows = expenses.map(e => ({ 'Description': e.label, 'Amount (RM)': e.amount }));
+
+  const totalCosts = totalCoachCosts + totalOtherCosts;
+  const netProfit  = totalRevenue - totalCosts;
+
+  // Build audit workbook with three mini-tables using aoa
+  const E = '';
+  const divider = ['━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', E, E, E, E, E, E];
+
   const aoa: (string | number)[][] = [
     [`MONTHLY FINANCIAL REPORT — ${monthLabel}`],
     [`Exported: ${exportDate}`],
     [E],
-
-    // ── Revenue ──────────────────────────────────────
-    ['REVENUE'],
-    ['Student Name', 'Student ID', 'Group', 'Sessions', 'Monthly Fee (RM)', 'Payment Status', 'Collected (RM)'],
-    ...studentRows,
-    [E, E, E, E, E, 'Total Collected', totalRevenue],
-    [E, E, E, E, E, 'Still Outstanding', outstanding],
-    [E, E, E, E, E, 'Potential (all paid)', potentialRevenue],
+    divider,
+    ['NET SUMMARY',                         E,                   ''],
+    ['Total Revenue Collected (RM)',         totalRevenue,        ''],
+    ['Still Outstanding (RM)',               outstanding,         ''],
+    ['Potential Revenue if All Paid (RM)',   potentialRevenue,    ''],
+    [E],
+    ['Total Coach Costs (RM)',               totalCoachCosts,     ''],
+    ['Total Other Expenses (RM)',            totalOtherCosts,     ''],
+    ['Total Costs (RM)',                     totalCosts,          ''],
+    [E],
+    ['NET PROFIT / LOSS (RM)',               netProfit,           netProfit >= 0 ? '▲ Profit' : '▼ Loss'],
+    divider,
     [E],
 
-    // ── Coach costs ───────────────────────────────────
-    ['COACH COSTS'],
+    // Revenue table
+    ['REVENUE BREAKDOWN'],
+    ['Student Name', 'Student ID', 'Group', 'Sessions', 'Monthly Fee (RM)', 'Status', 'Collected (RM)'],
+    ...studentRows.map(r => Object.values(r)),
+    [E, E, E, E, 'SUBTOTAL', E, totalRevenue],
+    [E],
+
+    // Coach cost table
+    ['COACH COSTS BREAKDOWN'],
     ['Coach Name', 'Sessions Handled', 'Rate / Class (RM)', 'Classes Attended', 'Total Cost (RM)', 'Payment Status'],
-    ...coachRows,
-    [E, E, E, E, 'Total Coach Costs', totalCoachCosts],
+    ...coachRows.map(r => Object.values(r)),
+    [E, E, E, 'SUBTOTAL', totalCoachCosts, E],
     [E],
 
-    // ── Other expenses ────────────────────────────────
+    // Expenses table
     ['OTHER EXPENSES'],
     ['Description', 'Amount (RM)'],
-    ...(expenseRows.length > 0 ? expenseRows : [['(none)', E]]),
-    ['Total Other Expenses', totalOtherCosts],
-    [E],
-
-    // ── Net summary ───────────────────────────────────
-    ['NET SUMMARY'],
-    ['Total Revenue Collected (RM)', totalRevenue],
-    ['Total Coach Costs (RM)', totalCoachCosts],
-    ['Total Other Expenses (RM)', totalOtherCosts],
-    ['Total Costs (RM)', totalCosts],
-    ['─────────────────────────────', E],
-    ['NET PROFIT / LOSS (RM)', netProfit],
-    [E],
-    ['Outstanding Revenue (RM)', outstanding],
-    ['Potential Revenue if All Paid (RM)', potentialRevenue],
+    ...(expenseRows.length > 0 ? expenseRows.map(r => Object.values(r)) : [['(none)', E]]),
+    ['SUBTOTAL', totalOtherCosts],
   ];
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-
-  // Column widths
   ws['!cols'] = [
-    { wch: 32 }, { wch: 14 }, { wch: 14 }, { wch: 30 },
-    { wch: 20 }, { wch: 22 }, { wch: 18 },
+    { wch: 34 }, { wch: 14 }, { wch: 14 }, { wch: 30 },
+    { wch: 20 }, { wch: 22 }, { wch: 16 },
   ];
 
-  // Name by month so past audits are preserved as separate tabs
   upsertSheet(wb, `Audit ${paymentMonth}`, ws);
 }
 
@@ -382,5 +482,6 @@ export function buildCombinedWorkbook(
   buildPaymentSheet(wb, allRegisteredStudents, sessions, paymentMap, paymentMonth);
   buildCoachPaymentSheet(wb, coaches, sessions, coachPaymentMap, classCounts, paymentMonth);
   buildFinancialAuditSheet(wb, allRegisteredStudents, sessions, coaches, paymentMap, coachPaymentMap, classCounts, expenses, paymentMonth);
+  buildOverviewSheet(wb, sessions, allRegisteredStudents, coaches, paymentMap, coachPaymentMap, expenses, classCounts, sessionDate, paymentMonth);
   return wb;
 }
