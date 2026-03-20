@@ -82,7 +82,7 @@ export const PaymentTracker: React.FC<Props> = ({
   const [newExpenseAmount, setNewExpenseAmount] = useState('');
 
   const exportXLSX = () => {
-    const wb = buildCombinedWorkbook(sessions, students, studentsWithStatus, replacementStudents, coaches, sessionDate, paymentMap, paymentMonth, coachAttendanceMap, coachReplacements, coachPaymentMap);
+    const wb = buildCombinedWorkbook(sessions, students, studentsWithStatus, replacementStudents, coaches, sessionDate, paymentMap, paymentMonth, coachAttendanceMap, coachReplacements, coachPaymentMap, undefined, expenses);
     XLSX.writeFile(wb, `badminton_${paymentMonth}.xlsx`);
   };
 
@@ -95,7 +95,7 @@ export const PaymentTracker: React.FC<Props> = ({
       try {
         const data = new Uint8Array(evt.target!.result as ArrayBuffer);
         const baseWb = XLSX.read(data, { type: 'array' });
-        buildCombinedWorkbook(sessions, students, studentsWithStatus, replacementStudents, coaches, sessionDate, paymentMap, paymentMonth, coachAttendanceMap, coachReplacements, coachPaymentMap, baseWb);
+        buildCombinedWorkbook(sessions, students, studentsWithStatus, replacementStudents, coaches, sessionDate, paymentMap, paymentMonth, coachAttendanceMap, coachReplacements, coachPaymentMap, baseWb, expenses);
         XLSX.writeFile(baseWb, `${file.name.replace(/\.xlsx?$/i, '')}.xlsx`);
         setSyncStatus('success');
         setSyncMsg(`Synced! Student & coach payments (${paymentMonth}) updated.`);

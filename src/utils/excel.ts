@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { Student, RegisteredStudent, RegisteredCoach, TrainingSession, PaymentStatus, CoachAttendanceStatus } from '../types';
+import { Student, RegisteredStudent, RegisteredCoach, TrainingSession, PaymentStatus, CoachAttendanceStatus, MonthlyExpense } from '../types';
 
 export type ReplacementStudent = Student & { sessionId: string; coachId: string };
 export type CoachReplacement = { coachId: string; replacedById: string; sessionId: string };
@@ -182,34 +182,36 @@ function buildPaymentSheet(
   styleSheet(wb.Sheets[sheetName], rows, 4);
 }
 
+// ─── Shared: scan localStorage for monthly coach class counts ─────────────────
+function computeClassCounts(paymentMonth: string): Record<string, number> {
+  const counts: Record<string, number> = {};
+  if (typeof localStorage === 'undefined') return counts;
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key?.startsWith(`coach_attendance_${paymentMonth}-`)) continue;
+    try {
+      const map: Record<string, string> = JSON.parse(localStorage.getItem(key) ?? '{}');
+      for (const [coachId, status] of Object.entries(map)) {
+        if (status === 'present') counts[coachId] = (counts[coachId] ?? 0) + 1;
+      }
+    } catch {}
+  }
+  return counts;
+}
+
 // ─── Coach payment sheet ──────────────────────────────────────────────────────
 function buildCoachPaymentSheet(
   wb: XLSX.WorkBook,
   coaches: RegisteredCoach[],
   sessions: TrainingSession[],
   coachPaymentMap: Record<string, PaymentStatus>,
-  coachAttendanceMap: Record<string, CoachAttendanceStatus>,
+  classCounts: Record<string, number>,
   paymentMonth: string,
 ) {
   const sheetName = 'Coach Payments';
   const statusLabel = (id: string) => coachPaymentMap[id] === 'paid' ? 'Paid' : 'Unpaid';
   const sessionNames = (c: RegisteredCoach) =>
     c.sessionIds.map(sid => sessions.find(x => x.id === sid)?.name ?? '').filter(Boolean).join(', ');
-
-  // Count "present" days for each coach by scanning localStorage keys for the month
-  const classCounts: Record<string, number> = {};
-  if (typeof localStorage !== 'undefined') {
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key?.startsWith(`coach_attendance_${paymentMonth}-`)) continue;
-      try {
-        const map: Record<string, string> = JSON.parse(localStorage.getItem(key) ?? '{}');
-        for (const [coachId, status] of Object.entries(map)) {
-          if (status === 'present') classCounts[coachId] = (classCounts[coachId] ?? 0) + 1;
-        }
-      } catch {}
-    }
-  }
 
   let rows: Record<string, string>[];
   const makeRow = (c: RegisteredCoach) => {
@@ -246,6 +248,116 @@ function buildCoachPaymentSheet(
   styleSheet(wb.Sheets[sheetName], rows, 5);
 }
 
+// ─── Financial Audit sheet ────────────────────────────────────────────────────
+function buildFinancialAuditSheet(
+  wb: XLSX.WorkBook,
+  allRegisteredStudents: RegisteredStudent[],
+  sessions: TrainingSession[],
+  coaches: RegisteredCoach[],
+  paymentMap: Record<string, PaymentStatus>,
+  coachPaymentMap: Record<string, PaymentStatus>,
+  classCounts: Record<string, number>,
+  expenses: MonthlyExpense[],
+  paymentMonth: string,
+) {
+  const monthLabel = new Date(`${paymentMonth}-01`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }).toUpperCase();
+  const exportDate = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+  const sessNames = (ids: string[]) =>
+    ids.map(sid => sessions.find(x => x.id === sid)?.name ?? '').filter(Boolean).join(', ');
+
+  const isOnBreak = (s: RegisteredStudent) =>
+    s.breakPeriods?.some(bp => bp.from <= `${paymentMonth}-31` && bp.to >= `${paymentMonth}-01`) ?? false;
+
+  // ── Revenue ──
+  let totalRevenue = 0;
+  const studentRows = allRegisteredStudents.map(s => {
+    const onBreak = isOnBreak(s);
+    const paid = paymentMap[s.id] === 'paid';
+    const fee = s.monthlyFee ?? 0;
+    const collected = !onBreak && paid ? fee : 0;
+    totalRevenue += collected;
+    const status = onBreak ? 'On Break (Exempt)' : paid ? 'Paid' : 'Unpaid';
+    return [s.name, s.studentId, s.group ?? '', sessNames(s.sessionIds), fee || '', status, collected || ''];
+  });
+  const unpaidStudents = allRegisteredStudents.filter(s => !isOnBreak(s) && paymentMap[s.id] !== 'paid').length;
+  const potentialRevenue = allRegisteredStudents
+    .filter(s => !isOnBreak(s))
+    .reduce((sum, s) => sum + (s.monthlyFee ?? 0), 0);
+
+  // ── Coach costs ──
+  let totalCoachCosts = 0;
+  const coachRows = coaches.map(c => {
+    const classes = classCounts[c.id] ?? 0;
+    const rate = c.ratePerClass;
+    const total = rate != null ? rate * classes : null;
+    if (total != null) totalCoachCosts += total;
+    const payStatus = coachPaymentMap[c.id] === 'paid' ? 'Paid' : 'Unpaid';
+    return [c.name, sessNames(c.sessionIds), rate ?? 'No rate set', classes, total ?? 'N/A', payStatus];
+  });
+
+  // ── Other expenses ──
+  const totalOtherCosts = expenses.reduce((sum, e) => sum + e.amount, 0);
+  const expenseRows = expenses.map(e => [e.label, e.amount]);
+
+  const totalCosts = totalCoachCosts + totalOtherCosts;
+  const netProfit = totalRevenue - totalCosts;
+  const outstanding = potentialRevenue - totalRevenue;
+
+  // ── Build array-of-arrays ──
+  const E = ''; // empty cell shorthand
+  const aoa: (string | number)[][] = [
+    [`MONTHLY FINANCIAL REPORT — ${monthLabel}`],
+    [`Exported: ${exportDate}`],
+    [E],
+
+    // ── Revenue ──────────────────────────────────────
+    ['REVENUE'],
+    ['Student Name', 'Student ID', 'Group', 'Sessions', 'Monthly Fee (RM)', 'Payment Status', 'Collected (RM)'],
+    ...studentRows,
+    [E, E, E, E, E, 'Total Collected', totalRevenue],
+    [E, E, E, E, E, 'Still Outstanding', outstanding],
+    [E, E, E, E, E, 'Potential (all paid)', potentialRevenue],
+    [E],
+
+    // ── Coach costs ───────────────────────────────────
+    ['COACH COSTS'],
+    ['Coach Name', 'Sessions Handled', 'Rate / Class (RM)', 'Classes Attended', 'Total Cost (RM)', 'Payment Status'],
+    ...coachRows,
+    [E, E, E, E, 'Total Coach Costs', totalCoachCosts],
+    [E],
+
+    // ── Other expenses ────────────────────────────────
+    ['OTHER EXPENSES'],
+    ['Description', 'Amount (RM)'],
+    ...(expenseRows.length > 0 ? expenseRows : [['(none)', E]]),
+    ['Total Other Expenses', totalOtherCosts],
+    [E],
+
+    // ── Net summary ───────────────────────────────────
+    ['NET SUMMARY'],
+    ['Total Revenue Collected (RM)', totalRevenue],
+    ['Total Coach Costs (RM)', totalCoachCosts],
+    ['Total Other Expenses (RM)', totalOtherCosts],
+    ['Total Costs (RM)', totalCosts],
+    ['─────────────────────────────', E],
+    ['NET PROFIT / LOSS (RM)', netProfit],
+    [E],
+    ['Outstanding Revenue (RM)', outstanding],
+    ['Potential Revenue if All Paid (RM)', potentialRevenue],
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+  // Column widths
+  ws['!cols'] = [
+    { wch: 32 }, { wch: 14 }, { wch: 14 }, { wch: 30 },
+    { wch: 20 }, { wch: 22 }, { wch: 18 },
+  ];
+
+  upsertSheet(wb, 'Financial Audit', ws);
+}
+
 // ─── Combined workbook ────────────────────────────────────────────────────────
 export function buildCombinedWorkbook(
   sessions: TrainingSession[],
@@ -260,11 +372,14 @@ export function buildCombinedWorkbook(
   coachReplacements: CoachReplacement[],
   coachPaymentMap: Record<string, PaymentStatus>,
   baseWb?: XLSX.WorkBook,
+  expenses: MonthlyExpense[] = [],
 ): XLSX.WorkBook {
   const wb = baseWb ?? XLSX.utils.book_new();
+  const classCounts = computeClassCounts(paymentMonth);
   buildAttendanceSheets(wb, sessions, allRegisteredStudents, students, replacementStudents, coaches, sessionDate);
   buildCoachAttendanceSheet(wb, coaches, sessions, coachAttendanceMap, coachReplacements, sessionDate);
   buildPaymentSheet(wb, allRegisteredStudents, sessions, paymentMap, paymentMonth);
-  buildCoachPaymentSheet(wb, coaches, sessions, coachPaymentMap, coachAttendanceMap, paymentMonth);
+  buildCoachPaymentSheet(wb, coaches, sessions, coachPaymentMap, classCounts, paymentMonth);
+  buildFinancialAuditSheet(wb, allRegisteredStudents, sessions, coaches, paymentMap, coachPaymentMap, classCounts, expenses, paymentMonth);
   return wb;
 }
