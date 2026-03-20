@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { CheckCircle, XCircle, History, Calendar, Download, FileSpreadsheet } from 'lucide-react';
+import { CheckCircle, XCircle, History, Calendar, Download, FileSpreadsheet, RefreshCw, AlertCircle } from 'lucide-react';
 import { Student, AttendanceStatus } from '../types';
 
 interface SessionRosterProps {
@@ -16,12 +16,17 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
   sessionDate,
   onDateChange,
 }) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [syncMsg, setSyncMsg] = useState('');
+
   const presentCount = students.filter(s => s.status === 'present').length;
   const absentCount = students.filter(s => s.status === 'absent').length;
   const lateCount = students.filter(s => s.status === 'late').length;
   const unmarkedCount = students.filter(s => s.status === 'none').length;
 
-  const rows = students.map(s => ({
+  // Today's attendance rows to append
+  const todayRows = students.map(s => ({
     Date: sessionDate,
     Name: s.name,
     'Student ID': s.studentId,
@@ -33,7 +38,7 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
     const header = ['Date', 'Name', 'Student ID', 'Group', 'Status'];
     const lines = [
       header.join(','),
-      ...rows.map(r => header.map(h => `"${r[h as keyof typeof r]}"`).join(',')),
+      ...todayRows.map(r => header.map(h => `"${r[h as keyof typeof r]}"`).join(',')),
     ];
     const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -45,10 +50,59 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
   };
 
   const exportXLSX = () => {
-    const ws = XLSX.utils.json_to_sheet(rows);
+    const ws = XLSX.utils.json_to_sheet(todayRows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
     XLSX.writeFile(wb, `attendance_${sessionDate}.xlsx`);
+  };
+
+  // Sync: upload existing Excel → strip any rows for today → append fresh rows → download
+  const handleSyncFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Reset input so same file can be re-uploaded if needed
+    e.target.value = '';
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = new Uint8Array(evt.target!.result as ArrayBuffer);
+        const wb = XLSX.read(data, { type: 'array' });
+
+        // Work on the first sheet that looks like attendance, else first sheet
+        const sheetName =
+          wb.SheetNames.find(n => /attend/i.test(n)) ?? wb.SheetNames[0];
+        const ws = wb.Sheets[sheetName];
+
+        // Read existing rows as array-of-objects
+        const existing: Record<string, string>[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+        // Remove any rows already recorded for today (avoid duplicates on re-sync)
+        const withoutToday = existing.filter(row => {
+          const rowDate = String(row['Date'] ?? row['date'] ?? '').trim();
+          return rowDate !== sessionDate;
+        });
+
+        // Append today's rows
+        const merged = [...withoutToday, ...todayRows];
+
+        // Write back to same sheet
+        const newWs = XLSX.utils.json_to_sheet(merged);
+        wb.Sheets[sheetName] = newWs;
+
+        // Download merged file with today's date in filename
+        const originalName = file.name.replace(/\.xlsx?$/i, '');
+        XLSX.writeFile(wb, `${originalName}_synced_${sessionDate}.xlsx`);
+
+        setSyncStatus('success');
+        setSyncMsg(`Synced! ${todayRows.length} rows appended to "${sheetName}" — download starting.`);
+      } catch {
+        setSyncStatus('error');
+        setSyncMsg('Could not read the file. Make sure it is a valid .xlsx or .xls file.');
+      }
+      setTimeout(() => setSyncStatus('idle'), 6000);
+    };
+    reader.readAsArrayBuffer(file);
   };
 
   return (
@@ -73,23 +127,56 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
           </div>
 
           {/* Export buttons */}
-          <div className="flex gap-3 flex-wrap">
+          <div className="flex gap-2 flex-wrap items-start">
             <button
               onClick={exportCSV}
-              className="flex items-center gap-2 px-5 py-2.5 bg-surface-container-high text-on-surface font-bold rounded-xl text-sm hover:bg-surface-container-highest transition-colors active:scale-95"
+              className="flex items-center gap-2 px-4 py-2.5 bg-surface-container-high text-on-surface font-bold rounded-xl text-sm hover:bg-surface-container-highest transition-colors active:scale-95"
             >
-              <Download size={16} />
-              Export CSV
+              <Download size={15} />
+              CSV
             </button>
             <button
               onClick={exportXLSX}
-              className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white font-bold rounded-xl text-sm hover:opacity-90 transition-opacity active:scale-95 shadow-md"
+              className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white font-bold rounded-xl text-sm hover:opacity-90 transition-opacity active:scale-95 shadow-md"
             >
-              <FileSpreadsheet size={16} />
-              Export XLSX
+              <FileSpreadsheet size={15} />
+              New XLSX
             </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-white font-bold rounded-xl text-sm hover:opacity-90 transition-opacity active:scale-95 shadow-md"
+            >
+              <RefreshCw size={15} />
+              Sync with Excel
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              className="hidden"
+              onChange={handleSyncFile}
+            />
           </div>
         </div>
+
+        {/* Sync status */}
+        {syncStatus !== 'idle' && (
+          <div className={`mt-4 flex items-start gap-3 p-4 rounded-2xl text-sm font-semibold ${
+            syncStatus === 'success'
+              ? 'bg-secondary-container text-on-secondary-container'
+              : 'bg-tertiary-container/30 text-tertiary'
+          }`}>
+            {syncStatus === 'success' ? <CheckCircle size={18} className="shrink-0 mt-0.5" /> : <AlertCircle size={18} className="shrink-0 mt-0.5" />}
+            {syncMsg}
+          </div>
+        )}
+
+        {/* Sync hint */}
+        {syncStatus === 'idle' && (
+          <p className="mt-3 text-xs text-outline">
+            <strong>Sync with Excel</strong> — upload your existing attendance Excel file and today's data will be appended automatically, then downloaded back.
+          </p>
+        )}
       </section>
 
       {/* Stats */}
@@ -134,7 +221,12 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
 
       {/* Student List */}
       <div className="flex flex-col gap-2">
-        {students.map((student) => (
+        {students.length === 0 ? (
+          <div className="text-center py-16 bg-surface-container-low rounded-3xl text-outline">
+            <p className="font-medium">No students registered yet.</p>
+            <p className="text-sm mt-1">Go to the Students tab to register students first.</p>
+          </div>
+        ) : students.map((student) => (
           <div
             key={student.id}
             className={`group p-4 rounded-2xl flex items-center justify-between transition-all border ${
@@ -164,7 +256,7 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
                 className={`px-3 py-1.5 rounded-full font-label text-[11px] font-bold tracking-wider uppercase transition-all active:scale-95 ${
                   student.status === 'present'
                     ? 'bg-secondary-container text-on-secondary-container'
-                    : 'bg-surface-container text-on-surface-variant hover:bg-secondary-container/50'
+                    : 'bg-surface-container-high text-on-surface-variant hover:bg-secondary-container/50'
                 }`}
               >
                 Present
@@ -174,7 +266,7 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
                 className={`px-3 py-1.5 rounded-full font-label text-[11px] font-bold tracking-wider uppercase transition-all active:scale-95 ${
                   student.status === 'absent'
                     ? 'bg-tertiary-container text-white'
-                    : 'bg-surface-container text-on-surface-variant hover:bg-tertiary-container/50'
+                    : 'bg-surface-container-high text-on-surface-variant hover:bg-tertiary-container/50'
                 }`}
               >
                 Absent
@@ -184,7 +276,7 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
                 className={`px-3 py-1.5 rounded-full font-label text-[11px] font-bold tracking-wider uppercase transition-all active:scale-95 ${
                   student.status === 'late'
                     ? 'bg-primary-fixed text-on-primary-fixed'
-                    : 'bg-surface-container text-on-surface-variant hover:bg-primary-fixed/50'
+                    : 'bg-surface-container-high text-on-surface-variant hover:bg-primary-fixed/50'
                 }`}
               >
                 Late
@@ -194,11 +286,11 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
         ))}
       </div>
 
-      {/* Save reminder */}
-      {unmarkedCount === 0 && (
+      {/* All marked banner */}
+      {students.length > 0 && unmarkedCount === 0 && (
         <div className="flex items-center gap-3 p-4 bg-secondary-container/30 rounded-2xl text-on-secondary-container text-sm font-semibold">
           <CheckCircle size={18} />
-          All {students.length} students marked — attendance auto-saved. Use Export buttons above to download.
+          All {students.length} students marked — tap <strong>Sync with Excel</strong> to append to your existing file.
         </div>
       )}
     </div>
