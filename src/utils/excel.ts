@@ -355,7 +355,8 @@ function buildFinancialAuditSheet(
     { wch: 20 }, { wch: 22 }, { wch: 18 },
   ];
 
-  upsertSheet(wb, 'Financial Audit', ws);
+  // Name by month so past audits are preserved as separate tabs
+  upsertSheet(wb, `Audit ${paymentMonth}`, ws);
 }
 
 // ─── Combined workbook ────────────────────────────────────────────────────────
