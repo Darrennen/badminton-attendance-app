@@ -62,6 +62,9 @@ export default function App() {
   const [attendanceMap, setAttendanceMap] = useState<Record<string, AttendanceStatus>>(
     () => loadJSON(`attendance_${todayISO()}`, {})
   );
+  const [replacements, setReplacements] = useState<{ studentId: string; sessionId: string }[]>(
+    () => loadJSON(`replacements_${todayISO()}`, [])
+  );
 
   // --- Legacy coaches state (for CoachAvailability) ---
   const [coaches, setCoaches] = useState<Coach[]>(COACHES);
@@ -71,15 +74,31 @@ export default function App() {
   useEffect(() => { saveJSON('registered_coaches', registeredCoaches); }, [registeredCoaches]);
   useEffect(() => { saveJSON('training_sessions', trainingSessions); }, [trainingSessions]);
 
-  // Load attendance when date changes
+  // Load attendance + replacements when date changes
   useEffect(() => {
     setAttendanceMap(loadJSON(`attendance_${sessionDate}`, {}));
+    setReplacements(loadJSON(`replacements_${sessionDate}`, []));
   }, [sessionDate]);
 
   // Auto-save attendance on change
   useEffect(() => {
     saveJSON(`attendance_${sessionDate}`, attendanceMap);
   }, [attendanceMap, sessionDate]);
+
+  // Auto-save replacements on change
+  useEffect(() => {
+    saveJSON(`replacements_${sessionDate}`, replacements);
+  }, [replacements, sessionDate]);
+
+  const addReplacement = (studentId: string, sessionId: string) => {
+    setReplacements(prev =>
+      prev.some(r => r.studentId === studentId) ? prev : [...prev, { studentId, sessionId }]
+    );
+  };
+  const removeReplacement = (studentId: string) => {
+    setReplacements(prev => prev.filter(r => r.studentId !== studentId));
+    setAttendanceMap(prev => { const n = { ...prev }; delete n[studentId]; return n; });
+  };
 
   // Build students-with-status for the attendance page
   const studentsWithStatus: Student[] = registeredStudents.map(s => ({
@@ -138,6 +157,11 @@ export default function App() {
             onStatusChange={handleStudentStatus}
             sessionDate={sessionDate}
             onDateChange={setSessionDate}
+            allRegisteredStudents={registeredStudents}
+            sessions={trainingSessions}
+            replacements={replacements}
+            onAddReplacement={addReplacement}
+            onRemoveReplacement={removeReplacement}
           />
         );
       case 'roster':
