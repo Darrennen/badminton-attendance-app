@@ -95,13 +95,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
             <span className="text-[9px] font-bold uppercase tracking-wider mt-1">{label}</span>
           </button>
         ))}
-        <button
-          onClick={() => setDark(d => !d)}
-          className="flex flex-col items-center justify-center px-3 py-2 rounded-2xl transition-all text-outline"
-        >
-          {dark ? <Sun size={20} /> : <Moon size={20} />}
-          <span className="text-[9px] font-bold uppercase tracking-wider mt-1">{dark ? 'Light' : 'Dark'}</span>
-        </button>
       </nav>
     </div>
   );
