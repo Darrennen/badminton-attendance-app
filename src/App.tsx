@@ -181,6 +181,8 @@ export default function App() {
             replacements={replacements}
             onAddReplacement={addReplacement}
             onRemoveReplacement={removeReplacement}
+            paymentMap={paymentMap}
+            paymentMonth={paymentMonth}
           />
         );
       case 'roster':
@@ -225,10 +227,14 @@ export default function App() {
           <PaymentTracker
             students={registeredStudents}
             sessions={trainingSessions}
+            coaches={registeredCoaches}
             paymentMap={paymentMap}
             paymentMonth={paymentMonth}
             onMonthChange={setPaymentMonth}
             onStatusChange={handlePaymentStatus}
+            studentsWithStatus={studentsWithStatus}
+            sessionDate={sessionDate}
+            replacements={replacements}
           />
         );
       case 'settings':

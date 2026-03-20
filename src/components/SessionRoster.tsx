@@ -1,133 +1,8 @@
 import React, { useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { CheckCircle, XCircle, History, Calendar, Download, FileSpreadsheet, RefreshCw, AlertCircle, UserPlus, X, Search } from 'lucide-react';
-import { Student, AttendanceStatus, RegisteredStudent, RegisteredCoach, TrainingSession } from '../types';
-
-type ReplacementStudent = Student & { sessionId: string; coachId: string };
-
-// Auto-size columns + freeze header row and first 3 fixed columns
-function styleSheet(ws: XLSX.WorkSheet, rows: Record<string, string>[], fixedCols = 3) {
-  if (rows.length === 0) return;
-  const keys = Object.keys(rows[0]);
-  ws['!cols'] = keys.map((key, i) => {
-    const maxLen = Math.max(key.length, ...rows.map(r => String(r[key] ?? '').length));
-    // Fixed columns get a comfortable min-width; date columns get a bit more room
-    const base = i < fixedCols ? Math.max(maxLen, 16) : Math.max(maxLen, 13);
-    return { wch: base + 2 };
-  });
-  // Freeze header row + first N fixed columns so you can scroll dates while names stay visible
-  ws['!freeze'] = { xSplit: fixedCols, ySplit: 1 };
-}
-
-// Build (or update) a pivot workbook where each session is its own sheet:
-//   Rows = students,  Columns = Name | Student ID | Group | date1 | date2 | …
-// Replacements go on a separate flat "Replacements" sheet.
-function buildPivotWorkbook(
-  sessions: TrainingSession[],
-  allRegisteredStudents: RegisteredStudent[],
-  students: Student[],
-  replacementStudents: ReplacementStudent[],
-  coaches: RegisteredCoach[],
-  sessionDate: string,
-  baseWb?: XLSX.WorkBook,
-): XLSX.WorkBook {
-  const wb = baseWb ?? XLSX.utils.book_new();
-
-  const statusLabel = (id: string) => {
-    const st = students.find(x => x.id === id)?.status ?? 'none';
-    return st === 'none' ? 'Unmarked' : st.charAt(0).toUpperCase() + st.slice(1);
-  };
-
-  // --- One pivot sheet per session ---
-  sessions.forEach(sess => {
-    const sheetName = sess.name.slice(0, 31);
-    const sessStudents = allRegisteredStudents.filter(s => s.sessionIds.includes(sess.id));
-
-    let rows: Record<string, string>[];
-
-    if (baseWb?.SheetNames.includes(sheetName)) {
-      // Existing sheet: read rows, update today's column, add any new students
-      const existing = XLSX.utils.sheet_to_json<Record<string, string>>(
-        baseWb.Sheets[sheetName], { defval: '' }
-      );
-      const updatedIds = new Set<string>();
-      rows = existing.map(row => {
-        const rs = allRegisteredStudents.find(s => s.studentId === row['Student ID']);
-        if (rs && sessStudents.some(ss => ss.id === rs.id)) {
-          updatedIds.add(rs.studentId);
-          return { ...row, [sessionDate]: statusLabel(rs.id) };
-        }
-        return row;
-      });
-      // Append students registered after the sheet was first created
-      sessStudents
-        .filter(s => !updatedIds.has(s.studentId))
-        .forEach(s => rows.push({
-          Name: s.name, 'Student ID': s.studentId, Group: s.group ?? '',
-          [sessionDate]: statusLabel(s.id),
-        }));
-    } else {
-      // New sheet
-      rows = sessStudents.map(s => ({
-        Name: s.name, 'Student ID': s.studentId, Group: s.group ?? '',
-        [sessionDate]: statusLabel(s.id),
-      }));
-    }
-
-    const ws = XLSX.utils.json_to_sheet(rows);
-    styleSheet(ws, rows, 3); // freeze Name | Student ID | Group
-    if (baseWb?.SheetNames.includes(sheetName)) {
-      wb.Sheets[sheetName] = ws;
-    } else {
-      XLSX.utils.book_append_sheet(wb, ws, sheetName);
-    }
-  });
-
-  // --- Replacements sheet (flat: Date | Name | Student ID | Session | Coach | Status) ---
-  if (replacementStudents.length > 0 || (baseWb?.SheetNames.includes('Replacements'))) {
-    const replSheetName = 'Replacements';
-    const todayReplRows = replacementStudents.map(r => {
-      const sess = sessions.find(x => x.id === r.sessionId);
-      const coach = coaches.find(x => x.id === r.coachId);
-      const st = r.status === 'none' ? 'Unmarked' : r.status.charAt(0).toUpperCase() + r.status.slice(1);
-      return {
-        Date: sessionDate,
-        Name: r.name,
-        'Student ID': r.studentId,
-        Group: r.group ?? '',
-        Session: sess ? `${sess.name} (${sess.day})` : 'Unspecified',
-        Coach: coach ? coach.name : '',
-        Status: st,
-      };
-    });
-
-    let replRows: Record<string, string>[];
-    if (baseWb?.SheetNames.includes(replSheetName)) {
-      const existing = XLSX.utils.sheet_to_json<Record<string, string>>(
-        baseWb.Sheets[replSheetName], { defval: '' }
-      );
-      // Remove today's entries then re-add fresh
-      replRows = [
-        ...existing.filter(r => r['Date'] !== sessionDate),
-        ...todayReplRows,
-      ];
-    } else {
-      replRows = todayReplRows;
-    }
-
-    if (replRows.length > 0) {
-      const ws = XLSX.utils.json_to_sheet(replRows);
-      styleSheet(ws, replRows, 0); // no freeze — flat list, all columns fixed
-      if (baseWb?.SheetNames.includes(replSheetName)) {
-        wb.Sheets[replSheetName] = ws;
-      } else {
-        XLSX.utils.book_append_sheet(wb, ws, replSheetName);
-      }
-    }
-  }
-
-  return wb;
-}
+import { Student, AttendanceStatus, RegisteredStudent, RegisteredCoach, TrainingSession, PaymentStatus } from '../types';
+import { buildCombinedWorkbook, ReplacementStudent } from '../utils/excel';
 
 interface SessionRosterProps {
   students: Student[];
@@ -140,6 +15,8 @@ interface SessionRosterProps {
   replacements: { studentId: string; sessionId: string; coachId: string }[];
   onAddReplacement: (studentId: string, sessionId: string, coachId: string) => void;
   onRemoveReplacement: (studentId: string) => void;
+  paymentMap: Record<string, PaymentStatus>;
+  paymentMonth: string;
 }
 
 export const SessionRoster: React.FC<SessionRosterProps> = ({
@@ -153,6 +30,8 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
   replacements,
   onAddReplacement,
   onRemoveReplacement,
+  paymentMap,
+  paymentMonth,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'success' | 'error'>('idle');
@@ -227,10 +106,10 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
     URL.revokeObjectURL(url);
   };
 
-  // XLSX: pivot format — one sheet per session, dates as columns
+  // XLSX: combined workbook — attendance sheets + payments sheet
   const exportXLSX = () => {
-    const wb = buildPivotWorkbook(sessions, allRegisteredStudents, students, replacementStudents, coaches, sessionDate);
-    XLSX.writeFile(wb, `attendance_${sessionDate}.xlsx`);
+    const wb = buildCombinedWorkbook(sessions, allRegisteredStudents, students, replacementStudents, coaches, sessionDate, paymentMap, paymentMonth);
+    XLSX.writeFile(wb, `badminton_${sessionDate}.xlsx`);
   };
 
   const handleSyncFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -242,11 +121,10 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
       try {
         const data = new Uint8Array(evt.target!.result as ArrayBuffer);
         const baseWb = XLSX.read(data, { type: 'array' });
-        buildPivotWorkbook(sessions, allRegisteredStudents, students, replacementStudents, coaches, sessionDate, baseWb);
-        const originalName = file.name.replace(/\.xlsx?$/i, '');
-        XLSX.writeFile(baseWb, `${originalName}.xlsx`);
+        buildCombinedWorkbook(sessions, allRegisteredStudents, students, replacementStudents, coaches, sessionDate, paymentMap, paymentMonth, baseWb);
+        XLSX.writeFile(baseWb, `${file.name.replace(/\.xlsx?$/i, '')}.xlsx`);
         setSyncStatus('success');
-        setSyncMsg(`Synced! ${sessionDate} column updated across ${sessions.length} session sheet${sessions.length !== 1 ? 's' : ''}.`);
+        setSyncMsg(`Synced! Attendance (${sessionDate}) and payments (${paymentMonth}) updated.`);
       } catch {
         setSyncStatus('error');
         setSyncMsg('Could not read the file. Make sure it is a valid .xlsx or .xls file.');

@@ -1,92 +1,34 @@
 import React, { useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { CheckCircle, XCircle, CreditCard, Download, FileSpreadsheet, RefreshCw, AlertCircle } from 'lucide-react';
-import { RegisteredStudent, TrainingSession, PaymentStatus } from '../types';
+import { CheckCircle, XCircle, CreditCard, FileSpreadsheet, RefreshCw, AlertCircle } from 'lucide-react';
+import { Student, RegisteredStudent, RegisteredCoach, TrainingSession, PaymentStatus } from '../types';
+import { buildCombinedWorkbook, ReplacementStudent } from '../utils/excel';
 
 interface Props {
   students: RegisteredStudent[];
   sessions: TrainingSession[];
+  coaches: RegisteredCoach[];
   paymentMap: Record<string, PaymentStatus>;
-  paymentMonth: string;          // YYYY-MM
+  paymentMonth: string;
   onMonthChange: (month: string) => void;
   onStatusChange: (studentId: string, status: PaymentStatus) => void;
+  // Attendance cross-data for combined export
+  studentsWithStatus: Student[];
+  sessionDate: string;
+  replacements: { studentId: string; sessionId: string; coachId: string }[];
 }
-
-// Auto-size + freeze helper (reused from SessionRoster pattern)
-function styleSheet(ws: XLSX.WorkSheet, rows: Record<string, string>[], fixedCols: number) {
-  if (rows.length === 0) return;
-  const keys = Object.keys(rows[0]);
-  ws['!cols'] = keys.map((key, i) => {
-    const maxLen = Math.max(key.length, ...rows.map(r => String(r[key] ?? '').length));
-    return { wch: (i < fixedCols ? Math.max(maxLen, 18) : Math.max(maxLen, 10)) + 2 };
-  });
-  ws['!freeze'] = { xSplit: fixedCols, ySplit: 1 };
-}
-
-function buildPaymentWorkbook(
-  students: RegisteredStudent[],
-  sessions: TrainingSession[],
-  paymentMap: Record<string, PaymentStatus>,
-  paymentMonth: string,
-  baseWb?: XLSX.WorkBook,
-): XLSX.WorkBook {
-  const wb = baseWb ?? XLSX.utils.book_new();
-  const sheetName = 'Payments';
-
-  const statusLabel = (id: string) =>
-    (paymentMap[id] === 'paid') ? 'Paid' : 'Unpaid';
-
-  const sessionNames = (s: RegisteredStudent) =>
-    s.sessionIds.map(sid => sessions.find(x => x.id === sid)?.name ?? '').filter(Boolean).join(', ');
-
-  let rows: Record<string, string>[];
-
-  if (baseWb?.SheetNames.includes(sheetName)) {
-    const existing = XLSX.utils.sheet_to_json<Record<string, string>>(
-      baseWb.Sheets[sheetName], { defval: '' }
-    );
-    const updatedIds = new Set<string>();
-    rows = existing.map(row => {
-      const rs = students.find(s => s.studentId === row['Student ID']);
-      if (rs) {
-        updatedIds.add(rs.studentId);
-        return { ...row, [paymentMonth]: statusLabel(rs.id) };
-      }
-      return row;
-    });
-    // Add newly registered students
-    students
-      .filter(s => !updatedIds.has(s.studentId))
-      .forEach(s => rows.push({
-        Name: s.name, 'Student ID': s.studentId, Group: s.group ?? '',
-        Sessions: sessionNames(s), [paymentMonth]: statusLabel(s.id),
-      }));
-  } else {
-    rows = students.map(s => ({
-      Name: s.name, 'Student ID': s.studentId, Group: s.group ?? '',
-      Sessions: sessionNames(s), [paymentMonth]: statusLabel(s.id),
-    }));
-  }
-
-  const ws = XLSX.utils.json_to_sheet(rows);
-  styleSheet(ws, rows, 4); // freeze Name | Student ID | Group | Sessions
-  if (baseWb?.SheetNames.includes(sheetName)) {
-    wb.Sheets[sheetName] = ws;
-  } else {
-    XLSX.utils.book_append_sheet(wb, ws, sheetName);
-  }
-  return wb;
-}
-
-const todayMonth = () => new Date().toISOString().slice(0, 7);
 
 export const PaymentTracker: React.FC<Props> = ({
   students,
   sessions,
+  coaches,
   paymentMap,
   paymentMonth,
   onMonthChange,
   onStatusChange,
+  studentsWithStatus,
+  sessionDate,
+  replacements,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeSession, setActiveSession] = useState('all');
@@ -109,9 +51,14 @@ export const PaymentTracker: React.FC<Props> = ({
 
   const monthLabel = new Date(`${paymentMonth}-01`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
 
+  const replacementStudents: ReplacementStudent[] = replacements.map(r => {
+    const s = studentsWithStatus.find(st => st.id === r.studentId);
+    return s ? { ...s, sessionId: r.sessionId, coachId: r.coachId } : null;
+  }).filter(Boolean) as ReplacementStudent[];
+
   const exportXLSX = () => {
-    const wb = buildPaymentWorkbook(students, sessions, paymentMap, paymentMonth);
-    XLSX.writeFile(wb, `payments_${paymentMonth}.xlsx`);
+    const wb = buildCombinedWorkbook(sessions, students, studentsWithStatus, replacementStudents, coaches, sessionDate, paymentMap, paymentMonth);
+    XLSX.writeFile(wb, `badminton_${paymentMonth}.xlsx`);
   };
 
   const handleSyncFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -123,10 +70,10 @@ export const PaymentTracker: React.FC<Props> = ({
       try {
         const data = new Uint8Array(evt.target!.result as ArrayBuffer);
         const baseWb = XLSX.read(data, { type: 'array' });
-        buildPaymentWorkbook(students, sessions, paymentMap, paymentMonth, baseWb);
+        buildCombinedWorkbook(sessions, students, studentsWithStatus, replacementStudents, coaches, sessionDate, paymentMap, paymentMonth, baseWb);
         XLSX.writeFile(baseWb, `${file.name.replace(/\.xlsx?$/i, '')}.xlsx`);
         setSyncStatus('success');
-        setSyncMsg(`Synced! ${paymentMonth} column updated — downloading.`);
+        setSyncMsg(`Synced! Payments (${paymentMonth}) and attendance (${sessionDate}) updated.`);
       } catch {
         setSyncStatus('error');
         setSyncMsg('Could not read the file. Make sure it is a valid .xlsx or .xls file.');
