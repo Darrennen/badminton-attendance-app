@@ -75,13 +75,14 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
     s.studentId.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const presentCount  = students.filter(s => s.status === 'present').length
+  const activeStudents = students.filter(s => !s.onBreak);
+  const presentCount  = activeStudents.filter(s => s.status === 'present').length
     + replacementStudents.filter(s => s.status === 'present').length;
-  const absentCount   = students.filter(s => s.status === 'absent').length
+  const absentCount   = activeStudents.filter(s => s.status === 'absent').length
     + replacementStudents.filter(s => s.status === 'absent').length;
-  const lateCount     = students.filter(s => s.status === 'late').length
+  const lateCount     = activeStudents.filter(s => s.status === 'late').length
     + replacementStudents.filter(s => s.status === 'late').length;
-  const unmarkedCount = students.filter(s => s.status === 'none').length
+  const unmarkedCount = activeStudents.filter(s => s.status === 'none').length
     + replacementStudents.filter(s => s.status === 'none').length;
 
   // CSV stays flat (CSV can't do multiple sheets)
@@ -409,9 +410,11 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
           <div
             key={student.id}
             className={`group p-4 rounded-2xl flex items-center justify-between transition-all border ${
-              student.status === 'none'
-                ? 'bg-surface-container-lowest border-outline-variant/20'
-                : 'bg-surface-container-low border-transparent'
+              student.onBreak
+                ? 'bg-surface-container-lowest border-outline-variant/10 opacity-60'
+                : student.status === 'none'
+                  ? 'bg-surface-container-lowest border-outline-variant/20'
+                  : 'bg-surface-container-low border-transparent'
             }`}
           >
             <div className="flex items-center gap-4">
@@ -421,13 +424,21 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
                   : student.name.split(' ').map(n => n[0]).join('')}
               </div>
               <div>
-                <h4 className="font-headline font-bold text-on-surface">{student.name}</h4>
+                <div className="flex items-center gap-2">
+                  <h4 className="font-headline font-bold text-on-surface">{student.name}</h4>
+                  {student.onBreak && (
+                    <span className="bg-tertiary-container/40 text-tertiary text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full">On Break</span>
+                  )}
+                </div>
                 <p className="text-xs text-on-surface-variant font-medium">
                   {student.studentId}{student.group ? ` · ${student.group}` : ''}
                 </p>
               </div>
             </div>
-            <StatusButtons student={student} />
+            {student.onBreak
+              ? <span className="text-xs text-outline italic">Skipping this period</span>
+              : <StatusButtons student={student} />
+            }
           </div>
         ))}
       </div>

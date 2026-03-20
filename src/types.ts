@@ -9,6 +9,20 @@ export interface Student {
   avatar?: string;
   status: AttendanceStatus;
   group?: string;
+  onBreak?: boolean;
+}
+
+export interface BreakPeriod {
+  from: string; // YYYY-MM-DD
+  to: string;   // YYYY-MM-DD
+}
+
+export interface ScheduledReplacement {
+  id: string;
+  studentId: string;
+  date: string;      // YYYY-MM-DD — the future date of the makeup class
+  sessionId: string;
+  coachId: string;
 }
 
 export interface RegisteredStudent {
@@ -23,6 +37,7 @@ export interface RegisteredStudent {
   sessionCoachMap: Record<string, string>; // sessionId → coachId
   avatar?: string;
   group?: string;
+  breakPeriods?: BreakPeriod[];
   registeredAt: string;
 }
 

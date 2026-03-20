@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { UserPlus, Trash2, Phone, ShieldAlert, CheckCircle, Pencil, X } from 'lucide-react';
-import { RegisteredStudent, RegisteredCoach, TrainingSession } from '../types';
+import { UserPlus, Trash2, Phone, ShieldAlert, CheckCircle, Pencil, X, PauseCircle, Calendar } from 'lucide-react';
+import { RegisteredStudent, RegisteredCoach, TrainingSession, ScheduledReplacement, BreakPeriod } from '../types';
 
 interface Props {
   students: RegisteredStudent[];
@@ -9,6 +9,9 @@ interface Props {
   onAdd: (student: RegisteredStudent) => void;
   onUpdate: (student: RegisteredStudent) => void;
   onDelete: (id: string) => void;
+  scheduledReplacements: ScheduledReplacement[];
+  onAddScheduledReplacement: (r: ScheduledReplacement) => void;
+  onRemoveScheduledReplacement: (id: string) => void;
 }
 
 const blank = () => ({
@@ -20,14 +23,24 @@ const blank = () => ({
   sessionIds: [] as string[],
   sessionCoachMap: {} as Record<string, string>,
   group: '',
+  breakPeriods: [] as BreakPeriod[],
 });
 
-export const RegisterStudents: React.FC<Props> = ({ students, sessions, coaches, onAdd, onUpdate, onDelete }) => {
+export const RegisterStudents: React.FC<Props> = ({ students, sessions, coaches, onAdd, onUpdate, onDelete, scheduledReplacements, onAddScheduledReplacement, onRemoveScheduledReplacement }) => {
   const [form, setForm] = useState(blank());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+
+  // Break period form state
+  const [newBreakFrom, setNewBreakFrom] = useState('');
+  const [newBreakTo, setNewBreakTo] = useState('');
+
+  // Scheduled replacement form state (in edit mode)
+  const [newReplDate, setNewReplDate] = useState('');
+  const [newReplSessionId, setNewReplSessionId] = useState('');
+  const [newReplCoachId, setNewReplCoachId] = useState('');
 
   const toggleSession = (id: string) => {
     setForm(prev => {
@@ -57,7 +70,10 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, coaches,
       sessionIds: [...s.sessionIds],
       sessionCoachMap: { ...(s.sessionCoachMap ?? {}) },
       group: s.group ?? '',
+      breakPeriods: [...(s.breakPeriods ?? [])],
     });
+    setNewBreakFrom(''); setNewBreakTo('');
+    setNewReplDate(''); setNewReplSessionId(''); setNewReplCoachId('');
     setError('');
     setShowForm(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -88,6 +104,7 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, coaches,
         sessionIds: form.sessionIds,
         sessionCoachMap: form.sessionCoachMap,
         group: form.group.trim() || undefined,
+        breakPeriods: form.breakPeriods,
       });
       setSuccessMsg(`${form.name.trim()} updated successfully!`);
       setEditingId(null);
@@ -103,6 +120,7 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, coaches,
         sessionIds: form.sessionIds,
         sessionCoachMap: form.sessionCoachMap,
         group: form.group.trim() || undefined,
+        breakPeriods: [],
         registeredAt: new Date().toISOString(),
       });
       setSuccessMsg(`${form.name.trim()} registered successfully!`);
@@ -282,6 +300,108 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, coaches,
               )}
             </div>
 
+            {/* ── Break Periods ── */}
+            <div className="space-y-3">
+              <label className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-outline">
+                <PauseCircle size={13} />Break / Pause Periods
+              </label>
+              {form.breakPeriods.length > 0 && (
+                <div className="space-y-2">
+                  {form.breakPeriods.map((bp, i) => (
+                    <div key={i} className="flex items-center gap-3 bg-surface-container-high px-4 py-2.5 rounded-xl text-sm">
+                      <span className="text-outline text-xs">From</span>
+                      <span className="font-semibold text-on-surface">{bp.from}</span>
+                      <span className="text-outline text-xs">To</span>
+                      <span className="font-semibold text-on-surface">{bp.to}</span>
+                      <button type="button" onClick={() => setForm(p => ({ ...p, breakPeriods: p.breakPeriods.filter((_, j) => j !== i) }))}
+                        className="ml-auto p-1 text-outline hover:text-tertiary transition-colors"><X size={14} /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="flex flex-wrap gap-2 items-end">
+                <div>
+                  <label className="block text-[10px] text-outline mb-1">From</label>
+                  <input type="date" value={newBreakFrom} onChange={e => setNewBreakFrom(e.target.value)}
+                    className="px-3 py-2 bg-surface-container-high rounded-xl text-sm font-medium text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-outline mb-1">To</label>
+                  <input type="date" value={newBreakTo} onChange={e => setNewBreakTo(e.target.value)}
+                    className="px-3 py-2 bg-surface-container-high rounded-xl text-sm font-medium text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                </div>
+                <button type="button"
+                  onClick={() => {
+                    if (!newBreakFrom || !newBreakTo || newBreakFrom > newBreakTo) return;
+                    setForm(p => ({ ...p, breakPeriods: [...p.breakPeriods, { from: newBreakFrom, to: newBreakTo }] }));
+                    setNewBreakFrom(''); setNewBreakTo('');
+                  }}
+                  className="px-4 py-2 bg-primary-container text-on-primary-container font-bold text-sm rounded-xl active:scale-95 transition-transform"
+                >+ Add Period</button>
+              </div>
+            </div>
+
+            {/* ── Scheduled Replacements (only in edit mode) ── */}
+            {editingId && (
+              <div className="space-y-3">
+                <label className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-outline">
+                  <Calendar size={13} />Pre-scheduled Replacements
+                </label>
+                {scheduledReplacements.filter(r => r.studentId === editingId).length > 0 && (
+                  <div className="space-y-2">
+                    {scheduledReplacements.filter(r => r.studentId === editingId).map(r => {
+                      const sess = sessions.find(x => x.id === r.sessionId);
+                      const coach = coaches.find(c => c.id === r.coachId);
+                      return (
+                        <div key={r.id} className="flex items-center gap-3 bg-primary/5 border border-primary/15 px-4 py-2.5 rounded-xl text-sm flex-wrap">
+                          <span className="font-bold text-on-surface">{r.date}</span>
+                          {sess && <span className="bg-secondary-container text-on-secondary-container text-[10px] font-bold px-2 py-0.5 rounded-full">{sess.name}</span>}
+                          {coach && <span className="text-xs text-outline">→ {coach.name}</span>}
+                          <button type="button" onClick={() => onRemoveScheduledReplacement(r.id)}
+                            className="ml-auto p-1 text-outline hover:text-tertiary transition-colors"><X size={14} /></button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-2 items-end">
+                  <div>
+                    <label className="block text-[10px] text-outline mb-1">Date</label>
+                    <input type="date" value={newReplDate} onChange={e => setNewReplDate(e.target.value)}
+                      className="px-3 py-2 bg-surface-container-high rounded-xl text-sm font-medium text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-outline mb-1">Session</label>
+                    <select value={newReplSessionId} onChange={e => { setNewReplSessionId(e.target.value); setNewReplCoachId(''); }}
+                      className="px-3 py-2 bg-surface-container-high rounded-xl text-sm font-medium text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/30">
+                      <option value="">— pick session —</option>
+                      {sessions.map(s => <option key={s.id} value={s.id}>{s.name} ({s.day})</option>)}
+                    </select>
+                  </div>
+                  {newReplSessionId && (
+                    <div>
+                      <label className="block text-[10px] text-outline mb-1">Coach</label>
+                      <select value={newReplCoachId} onChange={e => setNewReplCoachId(e.target.value)}
+                        className="px-3 py-2 bg-surface-container-high rounded-xl text-sm font-medium text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/30">
+                        <option value="">— unassigned —</option>
+                        {coaches.filter(c => c.sessionIds.includes(newReplSessionId)).map(c => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <button type="button"
+                    onClick={() => {
+                      if (!newReplDate || !newReplSessionId) return;
+                      onAddScheduledReplacement({ id: Date.now().toString(), studentId: editingId, date: newReplDate, sessionId: newReplSessionId, coachId: newReplCoachId });
+                      setNewReplDate(''); setNewReplSessionId(''); setNewReplCoachId('');
+                    }}
+                    className="px-4 py-2 bg-secondary-container text-on-secondary-container font-bold text-sm rounded-xl active:scale-95 transition-transform"
+                  >+ Schedule</button>
+                </div>
+              </div>
+            )}
+
             <div className="flex gap-3">
               <button type="submit" className="bg-primary text-white font-headline font-bold px-8 py-3 rounded-xl active:scale-95 transition-transform shadow-md">
                 {editingId ? 'Save Changes' : 'Register Student'}
@@ -311,7 +431,19 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, coaches,
               <div key={s.id} className={`bg-surface-container-low rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${editingId === s.id ? 'ring-2 ring-primary/40' : ''}`}>
                 <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
                   <div>
-                    <p className="font-headline font-bold text-on-surface text-base">{s.name}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-headline font-bold text-on-surface text-base">{s.name}</p>
+                      {(s.breakPeriods?.length ?? 0) > 0 && (
+                        <span className="bg-tertiary-container/40 text-tertiary text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1">
+                          <PauseCircle size={9} />On Break
+                        </span>
+                      )}
+                      {scheduledReplacements.filter(r => r.studentId === s.id).length > 0 && (
+                        <span className="bg-primary/10 text-primary text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1">
+                          <Calendar size={9} />{scheduledReplacements.filter(r => r.studentId === s.id).length} scheduled
+                        </span>
+                      )}
+                    </div>
                     <p className="text-outline text-xs mt-0.5">{s.studentId} · IC: {s.icNumber}</p>
                     {s.group && (
                       <span className="inline-block mt-1 bg-primary-fixed text-on-primary-fixed text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">{s.group}</span>

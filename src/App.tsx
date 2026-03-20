@@ -16,7 +16,7 @@ import { RegisterCoaches } from './components/RegisterCoaches';
 import { ManageSessions } from './components/ManageSessions';
 import { PaymentTracker } from './components/PaymentTracker';
 import { COACHES } from './constants';
-import { AttendanceStatus, CoachAttendanceStatus, PaymentStatus, Student, Coach, RegisteredStudent, RegisteredCoach, TrainingSession } from './types';
+import { AttendanceStatus, CoachAttendanceStatus, PaymentStatus, Student, Coach, RegisteredStudent, RegisteredCoach, TrainingSession, ScheduledReplacement } from './types';
 import { CoachReplacement } from './utils/excel';
 
 type Tab =
@@ -149,6 +149,30 @@ export default function App() {
       return replacedById ? [...without, { coachId, replacedById, sessionId }] : without;
     });
 
+  // --- Scheduled (future) replacements ---
+  const [scheduledReplacements, setScheduledReplacements] = useState<ScheduledReplacement[]>(
+    () => loadJSON('scheduled_replacements', [])
+  );
+  useEffect(() => { saveJSON('scheduled_replacements', scheduledReplacements); }, [scheduledReplacements]);
+
+  const addScheduledReplacement = (r: ScheduledReplacement) =>
+    setScheduledReplacements(prev => [...prev, r]);
+  const removeScheduledReplacement = (id: string) =>
+    setScheduledReplacements(prev => prev.filter(r => r.id !== id));
+
+  // Auto-apply scheduled replacements when date changes or a new one is added for today
+  useEffect(() => {
+    scheduledReplacements.filter(r => r.date === sessionDate).forEach(r => {
+      setReplacements(prev =>
+        prev.some(x => x.studentId === r.studentId) ? prev : [...prev, { studentId: r.studentId, sessionId: r.sessionId, coachId: r.coachId }]
+      );
+    });
+  }, [sessionDate, scheduledReplacements]);
+
+  // Helper: is a student on break for a given date?
+  const isOnBreak = (s: RegisteredStudent, date: string) =>
+    s.breakPeriods?.some(bp => bp.from <= date && date <= bp.to) ?? false;
+
   const addReplacement = (studentId: string, sessionId: string, coachId: string) => {
     setReplacements(prev =>
       prev.some(r => r.studentId === studentId) ? prev : [...prev, { studentId, sessionId, coachId }]
@@ -167,6 +191,7 @@ export default function App() {
     avatar: s.avatar,
     group: s.group,
     status: attendanceMap[s.id] ?? 'none',
+    onBreak: isOnBreak(s, sessionDate),
   }));
 
   const handleStudentStatus = (id: string, status: AttendanceStatus) => {
@@ -248,6 +273,9 @@ export default function App() {
             onAdd={addStudent}
             onUpdate={updateStudent}
             onDelete={deleteStudent}
+            scheduledReplacements={scheduledReplacements}
+            onAddScheduledReplacement={addScheduledReplacement}
+            onRemoveScheduledReplacement={removeScheduledReplacement}
           />
         );
       case 'register-coaches':

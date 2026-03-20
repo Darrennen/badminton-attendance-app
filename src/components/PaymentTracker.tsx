@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { CheckCircle, XCircle, CreditCard, FileSpreadsheet, RefreshCw, AlertCircle } from 'lucide-react';
-import { Student, RegisteredStudent, RegisteredCoach, TrainingSession, PaymentStatus } from '../types';
+import { Student, RegisteredStudent, RegisteredCoach, TrainingSession, PaymentStatus, BreakPeriod } from '../types';
 import { buildCombinedWorkbook, ReplacementStudent } from '../utils/excel';
 
 interface Props {
@@ -45,12 +45,17 @@ export const PaymentTracker: React.FC<Props> = ({
   const [syncStatus, setSyncStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [syncMsg, setSyncMsg] = useState('');
 
+  // Check if student is on break during the payment month
+  const isOnBreakThisMonth = (s: RegisteredStudent) =>
+    s.breakPeriods?.some((bp: BreakPeriod) => bp.from <= `${paymentMonth}-31` && bp.to >= `${paymentMonth}-01`) ?? false;
+
   const displayedStudents = activeSession === 'all'
     ? students
     : students.filter(s => s.sessionIds.includes(activeSession));
 
-  const paidCount   = students.filter(s => paymentMap[s.id] === 'paid').length;
-  const unpaidCount = students.length - paidCount;
+  const activeStudents = students.filter(s => !isOnBreakThisMonth(s));
+  const paidCount   = activeStudents.filter(s => paymentMap[s.id] === 'paid').length;
+  const unpaidCount = activeStudents.filter(s => paymentMap[s.id] !== 'paid').length;
   const paidPct     = students.length ? Math.round((paidCount / students.length) * 100) : 0;
 
   // Session-specific counts for tab badges
@@ -198,15 +203,23 @@ export const PaymentTracker: React.FC<Props> = ({
           <div className="flex flex-col gap-2">
             {displayedStudents.map(s => {
               const isPaid = paymentMap[s.id] === 'paid';
+              const onBreak = isOnBreakThisMonth(s);
               const sessNames = s.sessionIds.map(sid => sessions.find(x => x.id === sid)?.name).filter(Boolean);
               return (
-                <div key={s.id} className={`p-4 rounded-2xl flex items-center justify-between transition-all border ${isPaid ? 'bg-secondary-container/20 border-secondary-container/40' : 'bg-surface-container-low border-outline-variant/10'}`}>
+                <div key={s.id} className={`p-4 rounded-2xl flex items-center justify-between transition-all border ${
+                  onBreak ? 'bg-surface-container-lowest border-outline-variant/10 opacity-60'
+                  : isPaid ? 'bg-secondary-container/20 border-secondary-container/40'
+                  : 'bg-surface-container-low border-outline-variant/10'
+                }`}>
                   <div className="flex items-center gap-4">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${isPaid ? 'bg-secondary-container text-on-secondary-container' : 'bg-surface-container-highest text-outline'}`}>
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${onBreak ? 'bg-surface-container-high text-outline' : isPaid ? 'bg-secondary-container text-on-secondary-container' : 'bg-surface-container-highest text-outline'}`}>
                       {s.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
                     </div>
                     <div>
-                      <p className="font-headline font-bold text-on-surface">{s.name}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-headline font-bold text-on-surface">{s.name}</p>
+                        {onBreak && <span className="bg-tertiary-container/40 text-tertiary text-[9px] font-bold px-1.5 py-0.5 rounded-full">On Break</span>}
+                      </div>
                       <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
                         <span className="text-xs text-outline">{s.studentId}</span>
                         {s.group && <span className="bg-primary-fixed text-on-primary-fixed text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wider">{s.group}</span>}
@@ -214,10 +227,13 @@ export const PaymentTracker: React.FC<Props> = ({
                       </div>
                     </div>
                   </div>
-                  <button onClick={() => onStudentPayment(s.id, isPaid ? 'unpaid' : 'paid')}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 ${isPaid ? 'bg-surface-container-high text-outline hover:bg-tertiary-container/30 hover:text-tertiary' : 'bg-secondary text-white shadow-sm hover:opacity-90'}`}>
-                    {isPaid ? 'Mark Unpaid' : 'Mark Paid'}
-                  </button>
+                  {onBreak
+                    ? <span className="text-xs text-outline italic px-4 py-2">Exempt</span>
+                    : <button onClick={() => onStudentPayment(s.id, isPaid ? 'unpaid' : 'paid')}
+                        className={`px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 ${isPaid ? 'bg-surface-container-high text-outline hover:bg-tertiary-container/30 hover:text-tertiary' : 'bg-secondary text-white shadow-sm hover:opacity-90'}`}>
+                        {isPaid ? 'Mark Unpaid' : 'Mark Paid'}
+                      </button>
+                  }
                 </div>
               );
             })}
