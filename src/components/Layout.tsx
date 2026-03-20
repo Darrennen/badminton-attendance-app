@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { LayoutDashboard, CalendarDays, UserPlus, UserCircle, CreditCard, Sun, Moon } from 'lucide-react';
+import { LayoutDashboard, CalendarDays, UserPlus, UserCircle, CreditCard, Sun, Moon, Layers } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface LayoutProps {
@@ -36,6 +36,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
     { id: 'payments', label: 'Payments', icon: CreditCard },
     { id: 'register-students', label: 'Students', icon: UserPlus },
     { id: 'register-coaches', label: 'Coaches', icon: UserCircle },
+    { id: 'manage-sessions', label: 'Sessions', icon: Layers },
   ];
 
   return (
