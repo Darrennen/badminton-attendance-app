@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { UserPlus, Trash2, Phone, ChevronDown, ChevronUp, ShieldAlert, CheckCircle } from 'lucide-react';
+import { UserPlus, Trash2, Phone, ChevronDown, ChevronUp, ShieldAlert, CheckCircle, Pencil, X } from 'lucide-react';
 import { RegisteredStudent, TrainingSession } from '../types';
 
 interface Props {
   students: RegisteredStudent[];
   sessions: TrainingSession[];
   onAdd: (student: RegisteredStudent) => void;
+  onUpdate: (student: RegisteredStudent) => void;
   onDelete: (id: string) => void;
 }
 
@@ -19,11 +20,12 @@ const blank = () => ({
   group: '',
 });
 
-export const RegisterStudents: React.FC<Props> = ({ students, sessions, onAdd, onDelete }) => {
+export const RegisterStudents: React.FC<Props> = ({ students, sessions, onAdd, onUpdate, onDelete }) => {
   const [form, setForm] = useState(blank());
-  const [showForm, setShowForm] = useState(true);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState('');
-  const [successName, setSuccessName] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
 
   const toggleSession = (id: string) => {
     setForm(prev => ({
@@ -34,74 +36,120 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, onAdd, o
     }));
   };
 
+  const startEdit = (s: RegisteredStudent) => {
+    setEditingId(s.id);
+    setForm({
+      name: s.name,
+      icNumber: s.icNumber,
+      phone: s.phone,
+      emergencyContactName: s.emergencyContactName,
+      emergencyContactPhone: s.emergencyContactPhone,
+      sessionIds: [...s.sessionIds],
+      group: s.group ?? '',
+    });
+    setError('');
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setForm(blank());
+    setError('');
+    setShowForm(false);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name.trim()) { setError('Full name is required.'); return; }
     if (!form.icNumber.trim()) { setError('IC number is required.'); return; }
     setError('');
 
-    const student: RegisteredStudent = {
-      id: Date.now().toString(),
-      name: form.name.trim(),
-      studentId: `#${String(students.length + 1).padStart(5, '0')}`,
-      icNumber: form.icNumber.trim(),
-      phone: form.phone.trim(),
-      emergencyContactName: form.emergencyContactName.trim(),
-      emergencyContactPhone: form.emergencyContactPhone.trim(),
-      sessionIds: form.sessionIds,
-      group: form.group.trim() || undefined,
-      registeredAt: new Date().toISOString(),
-    };
+    if (editingId) {
+      const existing = students.find(s => s.id === editingId)!;
+      onUpdate({
+        ...existing,
+        name: form.name.trim(),
+        icNumber: form.icNumber.trim(),
+        phone: form.phone.trim(),
+        emergencyContactName: form.emergencyContactName.trim(),
+        emergencyContactPhone: form.emergencyContactPhone.trim(),
+        sessionIds: form.sessionIds,
+        group: form.group.trim() || undefined,
+      });
+      setSuccessMsg(`${form.name.trim()} updated successfully!`);
+      setEditingId(null);
+    } else {
+      const student: RegisteredStudent = {
+        id: Date.now().toString(),
+        name: form.name.trim(),
+        studentId: `#${String(students.length + 1).padStart(5, '0')}`,
+        icNumber: form.icNumber.trim(),
+        phone: form.phone.trim(),
+        emergencyContactName: form.emergencyContactName.trim(),
+        emergencyContactPhone: form.emergencyContactPhone.trim(),
+        sessionIds: form.sessionIds,
+        group: form.group.trim() || undefined,
+        registeredAt: new Date().toISOString(),
+      };
+      onAdd(student);
+      setSuccessMsg(`${student.name} registered successfully!`);
+    }
 
-    onAdd(student);
-    setSuccessName(student.name);
     setForm(blank());
     setShowForm(false);
-    setTimeout(() => setSuccessName(''), 4000);
+    setTimeout(() => setSuccessMsg(''), 4000);
   };
 
   return (
     <div className="space-y-8">
-      <div>
-        <p className="font-label text-primary font-bold tracking-widest text-[11px] uppercase mb-2">Registration</p>
-        <h2 className="font-headline font-extrabold text-4xl text-on-background tracking-tight">Register Students</h2>
-        <p className="text-on-surface-variant mt-2 text-sm">{students.length} student{students.length !== 1 ? 's' : ''} registered</p>
+      <div className="flex items-end justify-between">
+        <div>
+          <p className="font-label text-primary font-bold tracking-widest text-[11px] uppercase mb-2">Registration</p>
+          <h2 className="font-headline font-extrabold text-4xl text-on-background tracking-tight">Register Students</h2>
+          <p className="text-on-surface-variant mt-2 text-sm">{students.length} student{students.length !== 1 ? 's' : ''} registered</p>
+        </div>
+        {!showForm && (
+          <button
+            type="button"
+            onClick={() => { cancelEdit(); setShowForm(true); }}
+            className="flex items-center gap-2 bg-primary text-white font-bold px-5 py-2.5 rounded-xl text-sm active:scale-95 transition-transform shadow-md"
+          >
+            <UserPlus size={16} /> Add Student
+          </button>
+        )}
       </div>
 
       {/* Success banner */}
-      {successName && (
+      {successMsg && (
         <div className="flex items-center gap-3 p-4 bg-secondary-container rounded-2xl text-on-secondary-container font-semibold text-sm">
-          <CheckCircle size={18} />
-          {successName} has been registered successfully!
+          <CheckCircle size={18} />{successMsg}
         </div>
       )}
 
       {/* Form card */}
-      <div className="bg-surface-container-low rounded-3xl overflow-hidden">
-        <button
-          type="button"
-          onClick={() => setShowForm(v => !v)}
-          className="w-full flex items-center justify-between px-6 py-5 text-left"
-        >
-          <div className="flex items-center gap-3">
-            <div className="bg-primary p-2 rounded-xl text-white">
-              <UserPlus size={18} />
+      {showForm && (
+        <div className="bg-surface-container-low rounded-3xl overflow-hidden border-2 border-primary/20">
+          <div className="flex items-center justify-between px-6 py-5">
+            <div className="flex items-center gap-3">
+              <div className="bg-primary p-2 rounded-xl text-white">
+                {editingId ? <Pencil size={18} /> : <UserPlus size={18} />}
+              </div>
+              <span className="font-headline font-bold text-lg">
+                {editingId ? 'Edit Student' : 'Add New Student'}
+              </span>
             </div>
-            <span className="font-headline font-bold text-lg">Add New Student</span>
+            <button type="button" onClick={cancelEdit} className="p-2 text-outline hover:text-on-surface transition-colors">
+              <X size={20} />
+            </button>
           </div>
-          {showForm ? <ChevronUp size={20} className="text-outline" /> : <ChevronDown size={20} className="text-outline" />}
-        </button>
 
-        {showForm && (
           <form onSubmit={handleSubmit} className="px-6 pb-6 space-y-5">
-
-            {/* Validation error */}
             {error && (
               <p className="text-sm font-semibold text-tertiary bg-tertiary-container/20 px-4 py-3 rounded-xl">{error}</p>
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Name */}
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-outline mb-1.5">Full Name *</label>
                 <input
@@ -111,7 +159,6 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, onAdd, o
                   placeholder="e.g. Ahmad Bin Ali"
                 />
               </div>
-              {/* IC */}
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-outline mb-1.5">IC Number *</label>
                 <input
@@ -121,7 +168,6 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, onAdd, o
                   placeholder="e.g. 990101-14-5432"
                 />
               </div>
-              {/* Phone */}
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-outline mb-1.5">Phone Number</label>
                 <input
@@ -132,7 +178,6 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, onAdd, o
                   placeholder="e.g. 012-3456789"
                 />
               </div>
-              {/* Group */}
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-outline mb-1.5">Group / Level</label>
                 <input
@@ -142,7 +187,6 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, onAdd, o
                   placeholder="e.g. Beginner, U15, Adults"
                 />
               </div>
-              {/* Emergency Name */}
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-outline mb-1.5">
                   <ShieldAlert size={11} className="inline mr-1" />Emergency Contact Name
@@ -154,7 +198,6 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, onAdd, o
                   placeholder="e.g. Fatimah Binti Ali (Mother)"
                 />
               </div>
-              {/* Emergency Phone */}
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-outline mb-1.5">
                   <ShieldAlert size={11} className="inline mr-1" />Emergency Contact Phone
@@ -169,12 +212,11 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, onAdd, o
               </div>
             </div>
 
-            {/* Session picker */}
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider text-outline mb-2">Sessions Joining</label>
               {sessions.length === 0 ? (
                 <p className="text-sm text-outline bg-surface-container-high px-4 py-3 rounded-xl">
-                  No sessions yet — go to <strong>Sessions</strong> tab first to add training sessions.
+                  No sessions yet — go to <strong>Sessions</strong> tab first.
                 </p>
               ) : (
                 <div className="flex flex-wrap gap-2">
@@ -196,15 +238,24 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, onAdd, o
               )}
             </div>
 
-            <button
-              type="submit"
-              className="w-full md:w-auto bg-primary text-white font-headline font-bold px-8 py-3 rounded-xl active:scale-95 transition-transform shadow-md"
-            >
-              Register Student
-            </button>
+            <div className="flex gap-3">
+              <button
+                type="submit"
+                className="bg-primary text-white font-headline font-bold px-8 py-3 rounded-xl active:scale-95 transition-transform shadow-md"
+              >
+                {editingId ? 'Save Changes' : 'Register Student'}
+              </button>
+              <button
+                type="button"
+                onClick={cancelEdit}
+                className="px-6 py-3 rounded-xl font-bold text-outline bg-surface-container-high hover:bg-surface-container-highest transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
           </form>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Student list */}
       <div>
@@ -215,12 +266,17 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, onAdd, o
           <div className="text-center py-16 bg-surface-container-low rounded-3xl text-outline">
             <UserPlus size={32} className="mx-auto mb-3 opacity-30" />
             <p className="font-medium">No students registered yet.</p>
-            <p className="text-sm mt-1">Use the form above to add students.</p>
+            <p className="text-sm mt-1">Tap "Add Student" to get started.</p>
           </div>
         ) : (
           <div className="space-y-3">
             {students.map(s => (
-              <div key={s.id} className="bg-surface-container-low rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div
+                key={s.id}
+                className={`bg-surface-container-low rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${
+                  editingId === s.id ? 'ring-2 ring-primary/40' : ''
+                }`}
+              >
                 <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
                   <div>
                     <p className="font-headline font-bold text-on-surface text-base">{s.name}</p>
@@ -253,13 +309,22 @@ export const RegisterStudents: React.FC<Props> = ({ students, sessions, onAdd, o
                     })}
                   </div>
                 </div>
-                <button
-                  onClick={() => onDelete(s.id)}
-                  className="p-2 text-outline hover:text-red-500 transition-colors self-start md:self-center shrink-0"
-                  title="Remove student"
-                >
-                  <Trash2 size={18} />
-                </button>
+                <div className="flex gap-1 self-start md:self-center shrink-0">
+                  <button
+                    onClick={() => startEdit(s)}
+                    className="p-2 text-outline hover:text-primary transition-colors"
+                    title="Edit student"
+                  >
+                    <Pencil size={17} />
+                  </button>
+                  <button
+                    onClick={() => onDelete(s.id)}
+                    className="p-2 text-outline hover:text-red-500 transition-colors"
+                    title="Remove student"
+                  >
+                    <Trash2 size={17} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>

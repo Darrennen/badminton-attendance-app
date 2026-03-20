@@ -102,11 +102,15 @@ export default function App() {
   // Registration handlers
   const addStudent = (s: RegisteredStudent) =>
     setRegisteredStudents(prev => [s, ...prev]);
+  const updateStudent = (s: RegisteredStudent) =>
+    setRegisteredStudents(prev => prev.map(x => x.id === s.id ? s : x));
   const deleteStudent = (id: string) =>
     setRegisteredStudents(prev => prev.filter(s => s.id !== id));
 
   const addCoach = (c: RegisteredCoach) =>
     setRegisteredCoaches(prev => [c, ...prev]);
+  const updateCoach = (c: RegisteredCoach) =>
+    setRegisteredCoaches(prev => prev.map(x => x.id === c.id ? c : x));
   const deleteCoach = (id: string) =>
     setRegisteredCoaches(prev => prev.filter(c => c.id !== id));
 
@@ -142,6 +146,7 @@ export default function App() {
             students={registeredStudents}
             sessions={trainingSessions}
             onAdd={addStudent}
+            onUpdate={updateStudent}
             onDelete={deleteStudent}
           />
         );
@@ -151,6 +156,7 @@ export default function App() {
             coaches={registeredCoaches}
             sessions={trainingSessions}
             onAdd={addCoach}
+            onUpdate={updateCoach}
             onDelete={deleteCoach}
           />
         );

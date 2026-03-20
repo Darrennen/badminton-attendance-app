@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { UserCircle, Trash2, Phone, ChevronDown, ChevronUp, CheckCircle } from 'lucide-react';
+import { UserCircle, Trash2, Phone, CheckCircle, Pencil, X } from 'lucide-react';
 import { RegisteredCoach, TrainingSession } from '../types';
 
 interface Props {
   coaches: RegisteredCoach[];
   sessions: TrainingSession[];
   onAdd: (coach: RegisteredCoach) => void;
+  onUpdate: (coach: RegisteredCoach) => void;
   onDelete: (id: string) => void;
 }
 
@@ -16,11 +17,12 @@ const blank = () => ({
   sessionIds: [] as string[],
 });
 
-export const RegisterCoaches: React.FC<Props> = ({ coaches, sessions, onAdd, onDelete }) => {
+export const RegisterCoaches: React.FC<Props> = ({ coaches, sessions, onAdd, onUpdate, onDelete }) => {
   const [form, setForm] = useState(blank());
-  const [showForm, setShowForm] = useState(true);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState('');
-  const [successName, setSuccessName] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
 
   const toggleSession = (id: string) => {
     setForm(prev => ({
@@ -31,6 +33,26 @@ export const RegisterCoaches: React.FC<Props> = ({ coaches, sessions, onAdd, onD
     }));
   };
 
+  const startEdit = (c: RegisteredCoach) => {
+    setEditingId(c.id);
+    setForm({
+      name: c.name,
+      icNumber: c.icNumber,
+      phone: c.phone,
+      sessionIds: [...c.sessionIds],
+    });
+    setError('');
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setForm(blank());
+    setError('');
+    setShowForm(false);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name.trim()) { setError('Full name is required.'); return; }
@@ -39,66 +61,87 @@ export const RegisterCoaches: React.FC<Props> = ({ coaches, sessions, onAdd, onD
 
     const initials = form.name.trim().split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
 
-    const coach: RegisteredCoach = {
-      id: Date.now().toString(),
-      name: form.name.trim(),
-      icNumber: form.icNumber.trim(),
-      phone: form.phone.trim(),
-      sessionIds: form.sessionIds,
-      initials,
-      coachStatus: 'active',
-      registeredAt: new Date().toISOString(),
-    };
+    if (editingId) {
+      const existing = coaches.find(c => c.id === editingId)!;
+      onUpdate({
+        ...existing,
+        name: form.name.trim(),
+        icNumber: form.icNumber.trim(),
+        phone: form.phone.trim(),
+        sessionIds: form.sessionIds,
+        initials,
+      });
+      setSuccessMsg(`${form.name.trim()} updated successfully!`);
+      setEditingId(null);
+    } else {
+      const coach: RegisteredCoach = {
+        id: Date.now().toString(),
+        name: form.name.trim(),
+        icNumber: form.icNumber.trim(),
+        phone: form.phone.trim(),
+        sessionIds: form.sessionIds,
+        initials,
+        coachStatus: 'active',
+        registeredAt: new Date().toISOString(),
+      };
+      onAdd(coach);
+      setSuccessMsg(`${coach.name} registered as a coach!`);
+    }
 
-    onAdd(coach);
-    setSuccessName(coach.name);
     setForm(blank());
     setShowForm(false);
-    setTimeout(() => setSuccessName(''), 4000);
+    setTimeout(() => setSuccessMsg(''), 4000);
   };
 
   return (
     <div className="space-y-8">
-      <div>
-        <p className="font-label text-primary font-bold tracking-widest text-[11px] uppercase mb-2">Registration</p>
-        <h2 className="font-headline font-extrabold text-4xl text-on-background tracking-tight">Register Coaches</h2>
-        <p className="text-on-surface-variant mt-2 text-sm">{coaches.length} coach{coaches.length !== 1 ? 'es' : ''} registered</p>
+      <div className="flex items-end justify-between">
+        <div>
+          <p className="font-label text-primary font-bold tracking-widest text-[11px] uppercase mb-2">Registration</p>
+          <h2 className="font-headline font-extrabold text-4xl text-on-background tracking-tight">Register Coaches</h2>
+          <p className="text-on-surface-variant mt-2 text-sm">{coaches.length} coach{coaches.length !== 1 ? 'es' : ''} registered</p>
+        </div>
+        {!showForm && (
+          <button
+            type="button"
+            onClick={() => { cancelEdit(); setShowForm(true); }}
+            className="flex items-center gap-2 bg-secondary text-white font-bold px-5 py-2.5 rounded-xl text-sm active:scale-95 transition-transform shadow-md"
+          >
+            <UserCircle size={16} /> Add Coach
+          </button>
+        )}
       </div>
 
       {/* Success banner */}
-      {successName && (
+      {successMsg && (
         <div className="flex items-center gap-3 p-4 bg-secondary-container rounded-2xl text-on-secondary-container font-semibold text-sm">
-          <CheckCircle size={18} />
-          {successName} has been registered as a coach!
+          <CheckCircle size={18} />{successMsg}
         </div>
       )}
 
-      {/* Form card */}
-      <div className="bg-surface-container-low rounded-3xl overflow-hidden">
-        <button
-          type="button"
-          onClick={() => setShowForm(v => !v)}
-          className="w-full flex items-center justify-between px-6 py-5 text-left"
-        >
-          <div className="flex items-center gap-3">
-            <div className="bg-secondary p-2 rounded-xl text-white">
-              <UserCircle size={18} />
+      {/* Form */}
+      {showForm && (
+        <div className="bg-surface-container-low rounded-3xl overflow-hidden border-2 border-secondary/20">
+          <div className="flex items-center justify-between px-6 py-5">
+            <div className="flex items-center gap-3">
+              <div className="bg-secondary p-2 rounded-xl text-white">
+                {editingId ? <Pencil size={18} /> : <UserCircle size={18} />}
+              </div>
+              <span className="font-headline font-bold text-lg">
+                {editingId ? 'Edit Coach' : 'Add New Coach'}
+              </span>
             </div>
-            <span className="font-headline font-bold text-lg">Add New Coach</span>
+            <button type="button" onClick={cancelEdit} className="p-2 text-outline hover:text-on-surface transition-colors">
+              <X size={20} />
+            </button>
           </div>
-          {showForm ? <ChevronUp size={20} className="text-outline" /> : <ChevronDown size={20} className="text-outline" />}
-        </button>
 
-        {showForm && (
           <form onSubmit={handleSubmit} className="px-6 pb-6 space-y-5">
-
-            {/* Validation error */}
             {error && (
               <p className="text-sm font-semibold text-tertiary bg-tertiary-container/20 px-4 py-3 rounded-xl">{error}</p>
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Name */}
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-outline mb-1.5">Full Name *</label>
                 <input
@@ -108,7 +151,6 @@ export const RegisterCoaches: React.FC<Props> = ({ coaches, sessions, onAdd, onD
                   placeholder="e.g. Darren Yap"
                 />
               </div>
-              {/* IC */}
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-outline mb-1.5">IC Number *</label>
                 <input
@@ -118,7 +160,6 @@ export const RegisterCoaches: React.FC<Props> = ({ coaches, sessions, onAdd, onD
                   placeholder="e.g. 900101-14-5432"
                 />
               </div>
-              {/* Phone */}
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-outline mb-1.5">Phone Number</label>
                 <input
@@ -131,7 +172,6 @@ export const RegisterCoaches: React.FC<Props> = ({ coaches, sessions, onAdd, onD
               </div>
             </div>
 
-            {/* Session picker */}
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider text-outline mb-2">Sessions Handling</label>
               {sessions.length === 0 ? (
@@ -158,15 +198,24 @@ export const RegisterCoaches: React.FC<Props> = ({ coaches, sessions, onAdd, onD
               )}
             </div>
 
-            <button
-              type="submit"
-              className="w-full md:w-auto bg-secondary text-white font-headline font-bold px-8 py-3 rounded-xl active:scale-95 transition-transform shadow-md"
-            >
-              Register Coach
-            </button>
+            <div className="flex gap-3">
+              <button
+                type="submit"
+                className="bg-secondary text-white font-headline font-bold px-8 py-3 rounded-xl active:scale-95 transition-transform shadow-md"
+              >
+                {editingId ? 'Save Changes' : 'Register Coach'}
+              </button>
+              <button
+                type="button"
+                onClick={cancelEdit}
+                className="px-6 py-3 rounded-xl font-bold text-outline bg-surface-container-high hover:bg-surface-container-highest transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
           </form>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Coach list */}
       <div>
@@ -177,12 +226,17 @@ export const RegisterCoaches: React.FC<Props> = ({ coaches, sessions, onAdd, onD
           <div className="text-center py-16 bg-surface-container-low rounded-3xl text-outline">
             <UserCircle size={32} className="mx-auto mb-3 opacity-30" />
             <p className="font-medium">No coaches registered yet.</p>
-            <p className="text-sm mt-1">Use the form above to add coaches.</p>
+            <p className="text-sm mt-1">Tap "Add Coach" to get started.</p>
           </div>
         ) : (
           <div className="space-y-3">
             {coaches.map(c => (
-              <div key={c.id} className="bg-surface-container-low rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div
+                key={c.id}
+                className={`bg-surface-container-low rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${
+                  editingId === c.id ? 'ring-2 ring-secondary/40' : ''
+                }`}
+              >
                 <div className="flex items-center gap-4 flex-1">
                   <div className="w-12 h-12 rounded-full bg-secondary-container flex items-center justify-center font-bold text-on-secondary-container text-lg shrink-0">
                     {c.initials}
@@ -210,13 +264,22 @@ export const RegisterCoaches: React.FC<Props> = ({ coaches, sessions, onAdd, onD
                     </div>
                   </div>
                 </div>
-                <button
-                  onClick={() => onDelete(c.id)}
-                  className="p-2 text-outline hover:text-red-500 transition-colors self-start md:self-center shrink-0"
-                  title="Remove coach"
-                >
-                  <Trash2 size={18} />
-                </button>
+                <div className="flex gap-1 self-start md:self-center shrink-0">
+                  <button
+                    onClick={() => startEdit(c)}
+                    className="p-2 text-outline hover:text-primary transition-colors"
+                    title="Edit coach"
+                  >
+                    <Pencil size={17} />
+                  </button>
+                  <button
+                    onClick={() => onDelete(c.id)}
+                    className="p-2 text-outline hover:text-red-500 transition-colors"
+                    title="Remove coach"
+                  >
+                    <Trash2 size={17} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
