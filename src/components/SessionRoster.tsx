@@ -134,7 +134,7 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
         const data = new Uint8Array(evt.target!.result as ArrayBuffer);
         const baseWb = XLSX.read(data, { type: 'array' });
         buildCombinedWorkbook(sessions, allRegisteredStudents, students, replacementStudents, coaches, sessionDate, paymentMap, paymentMonth, coachAttendanceMap, coachReplacements, coachPaymentMap, baseWb);
-        XLSX.writeFile(baseWb, `${file.name.replace(/\.xlsx?$/i, '')}.xlsx`);
+        XLSX.writeFile(baseWb, `badminton_file_${new Date().toISOString().slice(0, 10)}.xlsx`);
         setSyncStatus('success');
         setSyncMsg(`Synced! Attendance (${sessionDate}) and payments (${paymentMonth}) updated.`);
       } catch {
