@@ -1,8 +1,8 @@
 import React, { useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { CheckCircle, XCircle, History, Calendar, Download, FileSpreadsheet, RefreshCw, AlertCircle, UserPlus, X, Search } from 'lucide-react';
-import { Student, AttendanceStatus, RegisteredStudent, RegisteredCoach, TrainingSession, PaymentStatus } from '../types';
-import { buildCombinedWorkbook, ReplacementStudent } from '../utils/excel';
+import { Student, AttendanceStatus, CoachAttendanceStatus, RegisteredStudent, RegisteredCoach, TrainingSession, PaymentStatus } from '../types';
+import { buildCombinedWorkbook, ReplacementStudent, CoachReplacement } from '../utils/excel';
 
 interface SessionRosterProps {
   students: Student[];
@@ -17,6 +17,11 @@ interface SessionRosterProps {
   onRemoveReplacement: (studentId: string) => void;
   paymentMap: Record<string, PaymentStatus>;
   paymentMonth: string;
+  coachAttendanceMap: Record<string, CoachAttendanceStatus>;
+  coachReplacements: CoachReplacement[];
+  coachPaymentMap: Record<string, PaymentStatus>;
+  onCoachAttendance: (coachId: string, status: CoachAttendanceStatus) => void;
+  onSetCoachReplacement: (coachId: string, replacedById: string, sessionId: string) => void;
 }
 
 export const SessionRoster: React.FC<SessionRosterProps> = ({
@@ -32,10 +37,17 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
   onRemoveReplacement,
   paymentMap,
   paymentMonth,
+  coachAttendanceMap,
+  coachReplacements,
+  coachPaymentMap,
+  onCoachAttendance,
+  onSetCoachReplacement,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [syncMsg, setSyncMsg] = useState('');
+  const [activeTab, setActiveTab] = useState<'students' | 'coaches'>('students');
+  const [coachReplacerOpen, setCoachReplacerOpen] = useState<string | null>(null); // coachId being replaced
 
   // Replacement search state
   const [showReplacementPanel, setShowReplacementPanel] = useState(false);
@@ -106,9 +118,8 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
     URL.revokeObjectURL(url);
   };
 
-  // XLSX: combined workbook — attendance sheets + payments sheet
   const exportXLSX = () => {
-    const wb = buildCombinedWorkbook(sessions, allRegisteredStudents, students, replacementStudents, coaches, sessionDate, paymentMap, paymentMonth);
+    const wb = buildCombinedWorkbook(sessions, allRegisteredStudents, students, replacementStudents, coaches, sessionDate, paymentMap, paymentMonth, coachAttendanceMap, coachReplacements, coachPaymentMap);
     XLSX.writeFile(wb, `badminton_${sessionDate}.xlsx`);
   };
 
@@ -121,7 +132,7 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
       try {
         const data = new Uint8Array(evt.target!.result as ArrayBuffer);
         const baseWb = XLSX.read(data, { type: 'array' });
-        buildCombinedWorkbook(sessions, allRegisteredStudents, students, replacementStudents, coaches, sessionDate, paymentMap, paymentMonth, baseWb);
+        buildCombinedWorkbook(sessions, allRegisteredStudents, students, replacementStudents, coaches, sessionDate, paymentMap, paymentMonth, coachAttendanceMap, coachReplacements, coachPaymentMap, baseWb);
         XLSX.writeFile(baseWb, `${file.name.replace(/\.xlsx?$/i, '')}.xlsx`);
         setSyncStatus('success');
         setSyncMsg(`Synced! Attendance (${sessionDate}) and payments (${paymentMonth}) updated.`);
@@ -254,8 +265,141 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
         </div>
       </div>
 
-      {/* Regular student list */}
-      <div className="flex flex-col gap-2">
+      {/* Students / Coaches tab toggle */}
+      <div className="flex gap-2">
+        {(['students', 'coaches'] as const).map(tab => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`px-5 py-2 rounded-xl text-sm font-bold transition-all ${
+              activeTab === tab ? 'bg-primary text-white shadow-sm' : 'bg-surface-container-low text-on-surface-variant'
+            }`}
+          >
+            {tab === 'students' ? `Students (${students.length})` : `Coaches (${coaches.length})`}
+          </button>
+        ))}
+      </div>
+
+      {/* ── COACHES TAB ── */}
+      {activeTab === 'coaches' && (() => {
+        const coachPresent   = coaches.filter(c => coachAttendanceMap[c.id] === 'present').length;
+        const coachAbsent    = coaches.filter(c => coachAttendanceMap[c.id] === 'absent').length;
+        const coachOnLeave   = coaches.filter(c => coachAttendanceMap[c.id] === 'on-leave').length;
+        const coachUnmarked  = coaches.filter(c => !coachAttendanceMap[c.id] || coachAttendanceMap[c.id] === 'none').length;
+
+        return (
+          <div className="space-y-6">
+            {/* Coach stats */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {[
+                { label: 'Present', value: coachPresent, color: 'text-secondary', bg: 'bg-secondary-container/30' },
+                { label: 'Absent',  value: coachAbsent,  color: 'text-tertiary',  bg: 'bg-tertiary-container/20' },
+                { label: 'On Leave',value: coachOnLeave, color: 'text-primary',   bg: 'bg-primary/5' },
+                { label: 'Unmarked',value: coachUnmarked,color: 'text-outline',   bg: 'bg-surface-container-low' },
+              ].map(s => (
+                <div key={s.label} className={`${s.bg} p-4 rounded-2xl`}>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-outline mb-1">{s.label}</p>
+                  <p className={`text-2xl font-black ${s.color}`}>{s.value}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Coach rows grouped by session */}
+            {sessions.length === 0 ? (
+              <p className="text-sm text-outline text-center py-8">No sessions configured.</p>
+            ) : sessions.map(sess => {
+              const sessCoaches = coaches.filter(c => c.sessionIds.includes(sess.id));
+              if (sessCoaches.length === 0) return null;
+              return (
+                <div key={sess.id}>
+                  <p className="text-[11px] font-bold uppercase tracking-widest text-outline mb-2">
+                    {sess.name} · {sess.day} {sess.startTime}–{sess.endTime}
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    {sessCoaches.map(coach => {
+                      const st = coachAttendanceMap[coach.id] ?? 'none';
+                      const repl = coachReplacements.find(r => r.coachId === coach.id && r.sessionId === sess.id);
+                      const replCoach = repl ? coaches.find(c => c.id === repl.replacedById) : null;
+                      const isAbsentOrLeave = st === 'absent' || st === 'on-leave';
+                      return (
+                        <div key={coach.id} className={`p-4 rounded-2xl border transition-all ${
+                          st === 'none' ? 'bg-surface-container-lowest border-outline-variant/20'
+                          : st === 'present' ? 'bg-secondary-container/10 border-secondary-container/20'
+                          : 'bg-tertiary-container/10 border-tertiary-container/20'
+                        }`}>
+                          <div className="flex items-center justify-between gap-3 flex-wrap">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-full bg-secondary-container flex items-center justify-center text-xs font-black text-on-secondary-container">
+                                {coach.initials}
+                              </div>
+                              <div>
+                                <p className="font-bold text-on-surface">{coach.name}</p>
+                                {replCoach && (
+                                  <p className="text-xs text-primary font-semibold mt-0.5">↳ Replaced by {replCoach.name}</p>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex gap-1.5 flex-wrap">
+                              {(['present', 'absent', 'on-leave'] as CoachAttendanceStatus[]).map(s => (
+                                <button
+                                  key={s}
+                                  onClick={() => onCoachAttendance(coach.id, s)}
+                                  className={`px-3 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 ${
+                                    st === s
+                                      ? s === 'present' ? 'bg-secondary-container text-on-secondary-container'
+                                        : s === 'absent'   ? 'bg-tertiary-container text-white'
+                                        : 'bg-primary-fixed text-on-primary-fixed'
+                                      : 'bg-surface-container-high text-on-surface-variant'
+                                  }`}
+                                >
+                                  {s === 'on-leave' ? 'On Leave' : s.charAt(0).toUpperCase() + s.slice(1)}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Replacement coach picker */}
+                          {isAbsentOrLeave && (
+                            <div className="mt-3 pl-13">
+                              {coachReplacerOpen === `${coach.id}-${sess.id}` ? (
+                                <div className="flex flex-wrap gap-2 mt-1">
+                                  <button
+                                    onClick={() => { onSetCoachReplacement(coach.id, '', sess.id); setCoachReplacerOpen(null); }}
+                                    className="px-3 py-1 rounded-full text-xs font-bold bg-surface-container-highest text-outline"
+                                  >None</button>
+                                  {coaches.filter(c => c.id !== coach.id).map(c => (
+                                    <button
+                                      key={c.id}
+                                      onClick={() => { onSetCoachReplacement(coach.id, c.id, sess.id); setCoachReplacerOpen(null); }}
+                                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all active:scale-95 ${
+                                        repl?.replacedById === c.id ? 'bg-primary text-white' : 'bg-surface-container-high text-on-surface-variant'
+                                      }`}
+                                    >{c.name}</button>
+                                  ))}
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => setCoachReplacerOpen(`${coach.id}-${sess.id}`)}
+                                  className="text-xs font-bold text-primary hover:underline"
+                                >
+                                  {replCoach ? `Change replacement →` : `+ Assign replacement coach`}
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
+      {/* ── STUDENTS TAB ── */}
+      {activeTab === 'students' && <><div className="flex flex-col gap-2">
         {students.length === 0 ? (
           <div className="text-center py-16 bg-surface-container-low rounded-3xl text-outline">
             <p className="font-medium">No students registered yet.</p>
@@ -480,6 +624,8 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
           — tap <strong>Sync with Excel</strong> to save.
         </div>
       )}
+      </>}
+
     </div>
   );
 };

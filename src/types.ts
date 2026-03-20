@@ -1,4 +1,5 @@
 export type AttendanceStatus = 'present' | 'absent' | 'late' | 'none';
+export type CoachAttendanceStatus = 'present' | 'absent' | 'on-leave' | 'none';
 export type PaymentStatus = 'paid' | 'unpaid';
 
 export interface Student {

@@ -9,13 +9,17 @@ interface Props {
   sessions: TrainingSession[];
   coaches: RegisteredCoach[];
   paymentMap: Record<string, PaymentStatus>;
+  coachPaymentMap: Record<string, PaymentStatus>;
   paymentMonth: string;
   onMonthChange: (month: string) => void;
-  onStatusChange: (studentId: string, status: PaymentStatus) => void;
-  // Attendance cross-data for combined export
+  onStudentPayment: (studentId: string, status: PaymentStatus) => void;
+  onCoachPayment: (coachId: string, status: PaymentStatus) => void;
+  // Cross-data for combined export
   studentsWithStatus: Student[];
   sessionDate: string;
   replacements: { studentId: string; sessionId: string; coachId: string }[];
+  coachAttendanceMap: Record<string, import('../types').CoachAttendanceStatus>;
+  coachReplacements: import('../utils/excel').CoachReplacement[];
 }
 
 export const PaymentTracker: React.FC<Props> = ({
@@ -23,12 +27,16 @@ export const PaymentTracker: React.FC<Props> = ({
   sessions,
   coaches,
   paymentMap,
+  coachPaymentMap,
   paymentMonth,
   onMonthChange,
-  onStatusChange,
+  onStudentPayment,
+  onCoachPayment,
   studentsWithStatus,
   sessionDate,
   replacements,
+  coachAttendanceMap,
+  coachReplacements,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeSession, setActiveSession] = useState('all');
@@ -56,8 +64,10 @@ export const PaymentTracker: React.FC<Props> = ({
     return s ? { ...s, sessionId: r.sessionId, coachId: r.coachId } : null;
   }).filter(Boolean) as ReplacementStudent[];
 
+  const [activeTab, setActiveTab] = useState<'students' | 'coaches'>('students');
+
   const exportXLSX = () => {
-    const wb = buildCombinedWorkbook(sessions, students, studentsWithStatus, replacementStudents, coaches, sessionDate, paymentMap, paymentMonth);
+    const wb = buildCombinedWorkbook(sessions, students, studentsWithStatus, replacementStudents, coaches, sessionDate, paymentMap, paymentMonth, coachAttendanceMap, coachReplacements, coachPaymentMap);
     XLSX.writeFile(wb, `badminton_${paymentMonth}.xlsx`);
   };
 
@@ -70,10 +80,10 @@ export const PaymentTracker: React.FC<Props> = ({
       try {
         const data = new Uint8Array(evt.target!.result as ArrayBuffer);
         const baseWb = XLSX.read(data, { type: 'array' });
-        buildCombinedWorkbook(sessions, students, studentsWithStatus, replacementStudents, coaches, sessionDate, paymentMap, paymentMonth, baseWb);
+        buildCombinedWorkbook(sessions, students, studentsWithStatus, replacementStudents, coaches, sessionDate, paymentMap, paymentMonth, coachAttendanceMap, coachReplacements, coachPaymentMap, baseWb);
         XLSX.writeFile(baseWb, `${file.name.replace(/\.xlsx?$/i, '')}.xlsx`);
         setSyncStatus('success');
-        setSyncMsg(`Synced! Payments (${paymentMonth}) and attendance (${sessionDate}) updated.`);
+        setSyncMsg(`Synced! Student & coach payments (${paymentMonth}) updated.`);
       } catch {
         setSyncStatus('error');
         setSyncMsg('Could not read the file. Make sure it is a valid .xlsx or .xls file.');
@@ -131,139 +141,152 @@ export const PaymentTracker: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="bg-secondary-container/30 p-5 rounded-2xl">
-          <div className="flex items-center gap-2 mb-2">
-            <CheckCircle size={14} className="text-secondary" />
-            <p className="text-[11px] font-bold uppercase tracking-wider text-outline">Paid</p>
-          </div>
-          <p className="text-3xl font-black text-secondary">{paidCount}</p>
-        </div>
-        <div className="bg-tertiary-container/20 p-5 rounded-2xl">
-          <div className="flex items-center gap-2 mb-2">
-            <XCircle size={14} className="text-tertiary" />
-            <p className="text-[11px] font-bold uppercase tracking-wider text-outline">Unpaid</p>
-          </div>
-          <p className="text-3xl font-black text-tertiary">{unpaidCount}</p>
-        </div>
-        <div className="bg-surface-container-low p-5 rounded-2xl">
-          <div className="flex items-center gap-2 mb-2">
-            <CreditCard size={14} className="text-primary" />
-            <p className="text-[11px] font-bold uppercase tracking-wider text-outline">Collection</p>
-          </div>
-          <p className="text-3xl font-black text-primary">{paidPct}%</p>
-          {students.length > 0 && (
-            <div className="mt-2 h-1.5 bg-surface-container-high rounded-full overflow-hidden">
-              <div className="h-full bg-secondary rounded-full transition-all" style={{ width: `${paidPct}%` }} />
-            </div>
-          )}
-        </div>
+      {/* Students / Coaches tab toggle */}
+      <div className="flex gap-2">
+        {(['students', 'coaches'] as const).map(tab => (
+          <button key={tab} onClick={() => setActiveTab(tab)}
+            className={`px-5 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === tab ? 'bg-primary text-white shadow-sm' : 'bg-surface-container-low text-on-surface-variant'}`}>
+            {tab === 'students' ? `Students (${paidCount}/${students.length})` : `Coaches (${coaches.filter(c => coachPaymentMap[c.id] === 'paid').length}/${coaches.length})`}
+          </button>
+        ))}
       </div>
 
-      {/* Session filter tabs */}
-      {sessions.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => setActiveSession('all')}
-            className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${
-              activeSession === 'all' ? 'bg-primary text-white shadow-sm' : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container-high'
-            }`}
-          >
-            All ({paidCount}/{students.length})
-          </button>
-          {sessions.map(s => {
-            const { paid, total } = sessionCount(s.id);
-            return (
-              <button
-                key={s.id}
-                onClick={() => setActiveSession(s.id)}
-                className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${
-                  activeSession === s.id ? 'bg-primary text-white shadow-sm' : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container-high'
-                }`}
-              >
+      {/* ── STUDENTS TAB ── */}
+      {activeTab === 'students' && <>
+        {/* Stats */}
+        <div className="grid grid-cols-3 gap-4">
+          <div className="bg-secondary-container/30 p-5 rounded-2xl">
+            <div className="flex items-center gap-2 mb-2"><CheckCircle size={14} className="text-secondary" /><p className="text-[11px] font-bold uppercase tracking-wider text-outline">Paid</p></div>
+            <p className="text-3xl font-black text-secondary">{paidCount}</p>
+          </div>
+          <div className="bg-tertiary-container/20 p-5 rounded-2xl">
+            <div className="flex items-center gap-2 mb-2"><XCircle size={14} className="text-tertiary" /><p className="text-[11px] font-bold uppercase tracking-wider text-outline">Unpaid</p></div>
+            <p className="text-3xl font-black text-tertiary">{unpaidCount}</p>
+          </div>
+          <div className="bg-surface-container-low p-5 rounded-2xl">
+            <div className="flex items-center gap-2 mb-2"><CreditCard size={14} className="text-primary" /><p className="text-[11px] font-bold uppercase tracking-wider text-outline">Collection</p></div>
+            <p className="text-3xl font-black text-primary">{paidPct}%</p>
+            {students.length > 0 && <div className="mt-2 h-1.5 bg-surface-container-high rounded-full overflow-hidden"><div className="h-full bg-secondary rounded-full transition-all" style={{ width: `${paidPct}%` }} /></div>}
+          </div>
+        </div>
+
+        {/* Session filter */}
+        {sessions.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setActiveSession('all')} className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${activeSession === 'all' ? 'bg-primary text-white shadow-sm' : 'bg-surface-container-low text-on-surface-variant'}`}>
+              All ({paidCount}/{students.length})
+            </button>
+            {sessions.map(s => { const { paid, total } = sessionCount(s.id); return (
+              <button key={s.id} onClick={() => setActiveSession(s.id)} className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${activeSession === s.id ? 'bg-primary text-white shadow-sm' : 'bg-surface-container-low text-on-surface-variant'}`}>
                 {s.name} ({paid}/{total})
               </button>
-            );
-          })}
-        </div>
-      )}
+            ); })}
+          </div>
+        )}
 
-      {/* Student list */}
-      {students.length === 0 ? (
-        <div className="text-center py-16 bg-surface-container-low rounded-3xl text-outline">
-          <CreditCard size={32} className="mx-auto mb-3 opacity-30" />
-          <p className="font-medium">No students registered yet.</p>
-          <p className="text-sm mt-1">Go to Students tab to register students first.</p>
-        </div>
-      ) : displayedStudents.length === 0 ? (
-        <p className="text-sm text-outline text-center py-8">No students in this session.</p>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {displayedStudents.map(s => {
-            const isPaid = paymentMap[s.id] === 'paid';
-            const sessNames = s.sessionIds
-              .map(sid => sessions.find(x => x.id === sid)?.name)
-              .filter(Boolean);
-            return (
-              <div
-                key={s.id}
-                className={`p-4 rounded-2xl flex items-center justify-between transition-all border ${
-                  isPaid
-                    ? 'bg-secondary-container/20 border-secondary-container/40'
-                    : 'bg-surface-container-low border-outline-variant/10'
-                }`}
-              >
-                <div className="flex items-center gap-4">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${
-                    isPaid ? 'bg-secondary-container text-on-secondary-container' : 'bg-surface-container-highest text-outline'
-                  }`}>
-                    {s.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                  </div>
-                  <div>
-                    <p className="font-headline font-bold text-on-surface">{s.name}</p>
-                    <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-                      <span className="text-xs text-outline">{s.studentId}</span>
-                      {s.group && (
-                        <span className="bg-primary-fixed text-on-primary-fixed text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wider">{s.group}</span>
-                      )}
-                      {sessNames.map(name => (
-                        <span key={name} className="bg-surface-container-highest text-outline text-[9px] font-bold px-1.5 py-0.5 rounded-full">{name}</span>
-                      ))}
+        {/* Student list */}
+        {students.length === 0 ? (
+          <div className="text-center py-16 bg-surface-container-low rounded-3xl text-outline">
+            <CreditCard size={32} className="mx-auto mb-3 opacity-30" />
+            <p className="font-medium">No students registered yet.</p>
+          </div>
+        ) : displayedStudents.length === 0 ? (
+          <p className="text-sm text-outline text-center py-8">No students in this session.</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {displayedStudents.map(s => {
+              const isPaid = paymentMap[s.id] === 'paid';
+              const sessNames = s.sessionIds.map(sid => sessions.find(x => x.id === sid)?.name).filter(Boolean);
+              return (
+                <div key={s.id} className={`p-4 rounded-2xl flex items-center justify-between transition-all border ${isPaid ? 'bg-secondary-container/20 border-secondary-container/40' : 'bg-surface-container-low border-outline-variant/10'}`}>
+                  <div className="flex items-center gap-4">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${isPaid ? 'bg-secondary-container text-on-secondary-container' : 'bg-surface-container-highest text-outline'}`}>
+                      {s.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                    </div>
+                    <div>
+                      <p className="font-headline font-bold text-on-surface">{s.name}</p>
+                      <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                        <span className="text-xs text-outline">{s.studentId}</span>
+                        {s.group && <span className="bg-primary-fixed text-on-primary-fixed text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wider">{s.group}</span>}
+                        {sessNames.map(name => <span key={name} className="bg-surface-container-highest text-outline text-[9px] font-bold px-1.5 py-0.5 rounded-full">{name}</span>)}
+                      </div>
                     </div>
                   </div>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  {isPaid && (
-                    <span className="hidden sm:flex items-center gap-1 text-secondary text-xs font-bold">
-                      <CheckCircle size={13} />Paid
-                    </span>
-                  )}
-                  <button
-                    onClick={() => onStatusChange(s.id, isPaid ? 'unpaid' : 'paid')}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 ${
-                      isPaid
-                        ? 'bg-surface-container-high text-outline hover:bg-tertiary-container/30 hover:text-tertiary'
-                        : 'bg-secondary text-white shadow-sm hover:opacity-90'
-                    }`}
-                  >
+                  <button onClick={() => onStudentPayment(s.id, isPaid ? 'unpaid' : 'paid')}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 ${isPaid ? 'bg-surface-container-high text-outline hover:bg-tertiary-container/30 hover:text-tertiary' : 'bg-secondary text-white shadow-sm hover:opacity-90'}`}>
                     {isPaid ? 'Mark Unpaid' : 'Mark Paid'}
                   </button>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+              );
+            })}
+          </div>
+        )}
+        {students.length > 0 && unpaidCount === 0 && (
+          <div className="flex items-center gap-3 p-4 bg-secondary-container/30 rounded-2xl text-on-secondary-container text-sm font-semibold">
+            <CheckCircle size={18} />All {students.length} students paid for {monthLabel} — tap <strong>Sync Excel</strong> to save.
+          </div>
+        )}
+      </>}
 
-      {/* All paid banner */}
-      {students.length > 0 && unpaidCount === 0 && (
-        <div className="flex items-center gap-3 p-4 bg-secondary-container/30 rounded-2xl text-on-secondary-container text-sm font-semibold">
-          <CheckCircle size={18} />
-          All {students.length} students paid for {monthLabel} — tap <strong>Sync Excel</strong> to save.
-        </div>
-      )}
+      {/* ── COACHES TAB ── */}
+      {activeTab === 'coaches' && (() => {
+        const coachPaid   = coaches.filter(c => coachPaymentMap[c.id] === 'paid').length;
+        const coachUnpaid = coaches.length - coachPaid;
+        const coachPct    = coaches.length ? Math.round((coachPaid / coaches.length) * 100) : 0;
+        return <>
+          <div className="grid grid-cols-3 gap-4">
+            <div className="bg-secondary-container/30 p-5 rounded-2xl">
+              <div className="flex items-center gap-2 mb-2"><CheckCircle size={14} className="text-secondary" /><p className="text-[11px] font-bold uppercase tracking-wider text-outline">Paid</p></div>
+              <p className="text-3xl font-black text-secondary">{coachPaid}</p>
+            </div>
+            <div className="bg-tertiary-container/20 p-5 rounded-2xl">
+              <div className="flex items-center gap-2 mb-2"><XCircle size={14} className="text-tertiary" /><p className="text-[11px] font-bold uppercase tracking-wider text-outline">Unpaid</p></div>
+              <p className="text-3xl font-black text-tertiary">{coachUnpaid}</p>
+            </div>
+            <div className="bg-surface-container-low p-5 rounded-2xl">
+              <div className="flex items-center gap-2 mb-2"><CreditCard size={14} className="text-primary" /><p className="text-[11px] font-bold uppercase tracking-wider text-outline">Collection</p></div>
+              <p className="text-3xl font-black text-primary">{coachPct}%</p>
+              {coaches.length > 0 && <div className="mt-2 h-1.5 bg-surface-container-high rounded-full overflow-hidden"><div className="h-full bg-secondary rounded-full" style={{ width: `${coachPct}%` }} /></div>}
+            </div>
+          </div>
+          {coaches.length === 0 ? (
+            <div className="text-center py-16 bg-surface-container-low rounded-3xl text-outline">
+              <CreditCard size={32} className="mx-auto mb-3 opacity-30" /><p className="font-medium">No coaches registered yet.</p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {coaches.map(c => {
+                const isPaid = coachPaymentMap[c.id] === 'paid';
+                const sessNames = c.sessionIds.map(sid => sessions.find(x => x.id === sid)?.name).filter(Boolean);
+                return (
+                  <div key={c.id} className={`p-4 rounded-2xl flex items-center justify-between transition-all border ${isPaid ? 'bg-secondary-container/20 border-secondary-container/40' : 'bg-surface-container-low border-outline-variant/10'}`}>
+                    <div className="flex items-center gap-4">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${isPaid ? 'bg-secondary-container text-on-secondary-container' : 'bg-surface-container-highest text-outline'}`}>
+                        {c.initials}
+                      </div>
+                      <div>
+                        <p className="font-headline font-bold text-on-surface">{c.name}</p>
+                        <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                          {sessNames.map(name => <span key={name} className="bg-surface-container-highest text-outline text-[9px] font-bold px-1.5 py-0.5 rounded-full">{name}</span>)}
+                        </div>
+                      </div>
+                    </div>
+                    <button onClick={() => onCoachPayment(c.id, isPaid ? 'unpaid' : 'paid')}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 ${isPaid ? 'bg-surface-container-high text-outline hover:bg-tertiary-container/30 hover:text-tertiary' : 'bg-secondary text-white shadow-sm hover:opacity-90'}`}>
+                      {isPaid ? 'Mark Unpaid' : 'Mark Paid'}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {coaches.length > 0 && coachUnpaid === 0 && (
+            <div className="flex items-center gap-3 p-4 bg-secondary-container/30 rounded-2xl text-on-secondary-container text-sm font-semibold">
+              <CheckCircle size={18} />All {coaches.length} coaches paid for {monthLabel} — tap <strong>Sync Excel</strong> to save.
+            </div>
+          )}
+        </>;
+      })()}
 
     </div>
   );

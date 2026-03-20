@@ -16,7 +16,8 @@ import { RegisterCoaches } from './components/RegisterCoaches';
 import { ManageSessions } from './components/ManageSessions';
 import { PaymentTracker } from './components/PaymentTracker';
 import { COACHES } from './constants';
-import { AttendanceStatus, PaymentStatus, Student, Coach, RegisteredStudent, RegisteredCoach, TrainingSession } from './types';
+import { AttendanceStatus, CoachAttendanceStatus, PaymentStatus, Student, Coach, RegisteredStudent, RegisteredCoach, TrainingSession } from './types';
+import { CoachReplacement } from './utils/excel';
 
 type Tab =
   | 'dashboard'
@@ -98,15 +99,40 @@ export default function App() {
   const [paymentMap, setPaymentMap] = useState<Record<string, PaymentStatus>>(
     () => loadJSON(`payments_${thisMonth()}`, {})
   );
+  const [coachPaymentMap, setCoachPaymentMap] = useState<Record<string, PaymentStatus>>(
+    () => loadJSON(`coach_payments_${thisMonth()}`, {})
+  );
   useEffect(() => {
     setPaymentMap(loadJSON(`payments_${paymentMonth}`, {}));
+    setCoachPaymentMap(loadJSON(`coach_payments_${paymentMonth}`, {}));
   }, [paymentMonth]);
-  useEffect(() => {
-    saveJSON(`payments_${paymentMonth}`, paymentMap);
-  }, [paymentMap, paymentMonth]);
-  const handlePaymentStatus = (studentId: string, status: PaymentStatus) => {
+  useEffect(() => { saveJSON(`payments_${paymentMonth}`, paymentMap); }, [paymentMap, paymentMonth]);
+  useEffect(() => { saveJSON(`coach_payments_${paymentMonth}`, coachPaymentMap); }, [coachPaymentMap, paymentMonth]);
+  const handlePaymentStatus = (studentId: string, status: PaymentStatus) =>
     setPaymentMap(prev => ({ ...prev, [studentId]: status }));
-  };
+  const handleCoachPaymentStatus = (coachId: string, status: PaymentStatus) =>
+    setCoachPaymentMap(prev => ({ ...prev, [coachId]: status }));
+
+  // --- Coach attendance state (per date) ---
+  const [coachAttendanceMap, setCoachAttendanceMap] = useState<Record<string, CoachAttendanceStatus>>(
+    () => loadJSON(`coach_attendance_${todayISO()}`, {})
+  );
+  const [coachReplacements, setCoachReplacements] = useState<CoachReplacement[]>(
+    () => loadJSON(`coach_replacements_${todayISO()}`, [])
+  );
+  useEffect(() => {
+    setCoachAttendanceMap(loadJSON(`coach_attendance_${sessionDate}`, {}));
+    setCoachReplacements(loadJSON(`coach_replacements_${sessionDate}`, []));
+  }, [sessionDate]);
+  useEffect(() => { saveJSON(`coach_attendance_${sessionDate}`, coachAttendanceMap); }, [coachAttendanceMap, sessionDate]);
+  useEffect(() => { saveJSON(`coach_replacements_${sessionDate}`, coachReplacements); }, [coachReplacements, sessionDate]);
+  const handleCoachAttendance = (coachId: string, status: CoachAttendanceStatus) =>
+    setCoachAttendanceMap(prev => ({ ...prev, [coachId]: status }));
+  const setCoachReplacement = (coachId: string, replacedById: string, sessionId: string) =>
+    setCoachReplacements(prev => {
+      const without = prev.filter(r => !(r.coachId === coachId && r.sessionId === sessionId));
+      return replacedById ? [...without, { coachId, replacedById, sessionId }] : without;
+    });
 
   const addReplacement = (studentId: string, sessionId: string, coachId: string) => {
     setReplacements(prev =>
@@ -183,6 +209,11 @@ export default function App() {
             onRemoveReplacement={removeReplacement}
             paymentMap={paymentMap}
             paymentMonth={paymentMonth}
+            coachAttendanceMap={coachAttendanceMap}
+            coachReplacements={coachReplacements}
+            coachPaymentMap={coachPaymentMap}
+            onCoachAttendance={handleCoachAttendance}
+            onSetCoachReplacement={setCoachReplacement}
           />
         );
       case 'roster':
@@ -229,12 +260,16 @@ export default function App() {
             sessions={trainingSessions}
             coaches={registeredCoaches}
             paymentMap={paymentMap}
+            coachPaymentMap={coachPaymentMap}
             paymentMonth={paymentMonth}
             onMonthChange={setPaymentMonth}
-            onStatusChange={handlePaymentStatus}
+            onStudentPayment={handlePaymentStatus}
+            onCoachPayment={handleCoachPaymentStatus}
             studentsWithStatus={studentsWithStatus}
             sessionDate={sessionDate}
             replacements={replacements}
+            coachAttendanceMap={coachAttendanceMap}
+            coachReplacements={coachReplacements}
           />
         );
       case 'settings':

@@ -1,7 +1,8 @@
 import * as XLSX from 'xlsx';
-import { Student, RegisteredStudent, RegisteredCoach, TrainingSession, PaymentStatus } from '../types';
+import { Student, RegisteredStudent, RegisteredCoach, TrainingSession, PaymentStatus, CoachAttendanceStatus } from '../types';
 
 export type ReplacementStudent = Student & { sessionId: string; coachId: string };
+export type CoachReplacement = { coachId: string; replacedById: string; sessionId: string };
 
 // Auto-size columns + optionally freeze header + first N columns
 function styleSheet(ws: XLSX.WorkSheet, rows: Record<string, string>[], fixedCols: number) {
@@ -14,9 +15,12 @@ function styleSheet(ws: XLSX.WorkSheet, rows: Record<string, string>[], fixedCol
   if (fixedCols > 0) ws['!freeze'] = { xSplit: fixedCols, ySplit: 1 };
 }
 
-// ─── Attendance sheets ────────────────────────────────────────────────────────
-// One pivot sheet per session: rows = students, columns = Name|StudentID|Group|date1|date2|…
-// Plus a flat Replacements sheet.
+function upsertSheet(wb: XLSX.WorkBook, sheetName: string, ws: XLSX.WorkSheet) {
+  wb.Sheets[sheetName] = ws;
+  if (!wb.SheetNames.includes(sheetName)) wb.SheetNames.push(sheetName);
+}
+
+// ─── Student attendance sheets ────────────────────────────────────────────────
 function buildAttendanceSheets(
   wb: XLSX.WorkBook,
   sessions: TrainingSession[],
@@ -56,13 +60,11 @@ function buildAttendanceSheets(
       }));
     }
 
-    const ws = XLSX.utils.json_to_sheet(rows);
-    styleSheet(ws, rows, 3);
-    wb.Sheets[sheetName] = ws;
-    if (!wb.SheetNames.includes(sheetName)) wb.SheetNames.push(sheetName);
+    upsertSheet(wb, sheetName, XLSX.utils.json_to_sheet(rows));
+    styleSheet(wb.Sheets[sheetName], rows, 3);
   });
 
-  // Replacements sheet
+  // Student replacements — flat sheet
   if (replacementStudents.length > 0 || wb.SheetNames.includes('Replacements')) {
     const todayRows = replacementStudents.map(r => {
       const sess = sessions.find(x => x.id === r.sessionId);
@@ -74,7 +76,6 @@ function buildAttendanceSheets(
         Coach: coach?.name ?? '', Status: st,
       };
     });
-
     let replRows: Record<string, string>[];
     if (wb.SheetNames.includes('Replacements')) {
       const existing = XLSX.utils.sheet_to_json<Record<string, string>>(wb.Sheets['Replacements'], { defval: '' });
@@ -82,18 +83,71 @@ function buildAttendanceSheets(
     } else {
       replRows = todayRows;
     }
-
     if (replRows.length > 0) {
-      const ws = XLSX.utils.json_to_sheet(replRows);
-      styleSheet(ws, replRows, 0);
-      wb.Sheets['Replacements'] = ws;
-      if (!wb.SheetNames.includes('Replacements')) wb.SheetNames.push('Replacements');
+      upsertSheet(wb, 'Replacements', XLSX.utils.json_to_sheet(replRows));
+      styleSheet(wb.Sheets['Replacements'], replRows, 0);
     }
   }
 }
 
-// ─── Payment sheet ────────────────────────────────────────────────────────────
-// Single pivot sheet "Payments": rows = students, columns = Name|StudentID|Group|Sessions|month1|month2|…
+// ─── Coach attendance sheet ───────────────────────────────────────────────────
+// One pivot sheet "Coach Attendance": rows = coaches, columns = Name|Sessions|date1|date2|…
+function buildCoachAttendanceSheet(
+  wb: XLSX.WorkBook,
+  coaches: RegisteredCoach[],
+  sessions: TrainingSession[],
+  coachAttendanceMap: Record<string, CoachAttendanceStatus>,
+  coachReplacements: CoachReplacement[],
+  sessionDate: string,
+) {
+  const sheetName = 'Coach Attendance';
+
+  const statusLabel = (id: string) => {
+    const st = coachAttendanceMap[id] ?? 'none';
+    if (st === 'none') return 'Unmarked';
+    if (st === 'on-leave') return 'On Leave';
+    return st.charAt(0).toUpperCase() + st.slice(1);
+  };
+
+  const sessionNames = (c: RegisteredCoach) =>
+    c.sessionIds.map(sid => sessions.find(x => x.id === sid)?.name ?? '').filter(Boolean).join(', ');
+
+  const replNote = (id: string) => {
+    const repl = coachReplacements.find(r => r.coachId === id);
+    if (!repl) return '';
+    const sub = coaches.find(c => c.id === repl.replacedById);
+    return sub ? `→ ${sub.name}` : '';
+  };
+
+  let rows: Record<string, string>[];
+  if (wb.SheetNames.includes(sheetName)) {
+    const existing = XLSX.utils.sheet_to_json<Record<string, string>>(wb.Sheets[sheetName], { defval: '' });
+    const updatedIds = new Set<string>();
+    rows = existing.map(row => {
+      const c = coaches.find(x => x.name === row['Name']);
+      if (c) {
+        updatedIds.add(c.id);
+        const note = replNote(c.id);
+        return { ...row, [sessionDate]: statusLabel(c.id) + (note ? ` (${note})` : '') };
+      }
+      return row;
+    });
+    coaches.filter(c => !updatedIds.has(c.id)).forEach(c => {
+      const note = replNote(c.id);
+      rows.push({ Name: c.name, Sessions: sessionNames(c), [sessionDate]: statusLabel(c.id) + (note ? ` (${note})` : '') });
+    });
+  } else {
+    rows = coaches.map(c => {
+      const note = replNote(c.id);
+      return { Name: c.name, Sessions: sessionNames(c), [sessionDate]: statusLabel(c.id) + (note ? ` (${note})` : '') };
+    });
+  }
+
+  upsertSheet(wb, sheetName, XLSX.utils.json_to_sheet(rows));
+  styleSheet(wb.Sheets[sheetName], rows, 2);
+}
+
+// ─── Student payment sheet ────────────────────────────────────────────────────
 function buildPaymentSheet(
   wb: XLSX.WorkBook,
   allRegisteredStudents: RegisteredStudent[],
@@ -101,7 +155,7 @@ function buildPaymentSheet(
   paymentMap: Record<string, PaymentStatus>,
   paymentMonth: string,
 ) {
-  const sheetName = 'Payments';
+  const sheetName = 'Student Payments';
   const statusLabel = (id: string) => paymentMap[id] === 'paid' ? 'Paid' : 'Unpaid';
   const sessionNames = (s: RegisteredStudent) =>
     s.sessionIds.map(sid => sessions.find(x => x.id === sid)?.name ?? '').filter(Boolean).join(', ');
@@ -124,10 +178,43 @@ function buildPaymentSheet(
     }));
   }
 
-  const ws = XLSX.utils.json_to_sheet(rows);
-  styleSheet(ws, rows, 4);
-  wb.Sheets[sheetName] = ws;
-  if (!wb.SheetNames.includes(sheetName)) wb.SheetNames.push(sheetName);
+  upsertSheet(wb, sheetName, XLSX.utils.json_to_sheet(rows));
+  styleSheet(wb.Sheets[sheetName], rows, 4);
+}
+
+// ─── Coach payment sheet ──────────────────────────────────────────────────────
+function buildCoachPaymentSheet(
+  wb: XLSX.WorkBook,
+  coaches: RegisteredCoach[],
+  sessions: TrainingSession[],
+  coachPaymentMap: Record<string, PaymentStatus>,
+  paymentMonth: string,
+) {
+  const sheetName = 'Coach Payments';
+  const statusLabel = (id: string) => coachPaymentMap[id] === 'paid' ? 'Paid' : 'Unpaid';
+  const sessionNames = (c: RegisteredCoach) =>
+    c.sessionIds.map(sid => sessions.find(x => x.id === sid)?.name ?? '').filter(Boolean).join(', ');
+
+  let rows: Record<string, string>[];
+  if (wb.SheetNames.includes(sheetName)) {
+    const existing = XLSX.utils.sheet_to_json<Record<string, string>>(wb.Sheets[sheetName], { defval: '' });
+    const updatedIds = new Set<string>();
+    rows = existing.map(row => {
+      const c = coaches.find(x => x.name === row['Name']);
+      if (c) { updatedIds.add(c.id); return { ...row, [paymentMonth]: statusLabel(c.id) }; }
+      return row;
+    });
+    coaches.filter(c => !updatedIds.has(c.id)).forEach(c =>
+      rows.push({ Name: c.name, Sessions: sessionNames(c), [paymentMonth]: statusLabel(c.id) })
+    );
+  } else {
+    rows = coaches.map(c => ({
+      Name: c.name, Sessions: sessionNames(c), [paymentMonth]: statusLabel(c.id),
+    }));
+  }
+
+  upsertSheet(wb, sheetName, XLSX.utils.json_to_sheet(rows));
+  styleSheet(wb.Sheets[sheetName], rows, 2);
 }
 
 // ─── Combined workbook ────────────────────────────────────────────────────────
@@ -140,10 +227,15 @@ export function buildCombinedWorkbook(
   sessionDate: string,
   paymentMap: Record<string, PaymentStatus>,
   paymentMonth: string,
+  coachAttendanceMap: Record<string, CoachAttendanceStatus>,
+  coachReplacements: CoachReplacement[],
+  coachPaymentMap: Record<string, PaymentStatus>,
   baseWb?: XLSX.WorkBook,
 ): XLSX.WorkBook {
   const wb = baseWb ?? XLSX.utils.book_new();
   buildAttendanceSheets(wb, sessions, allRegisteredStudents, students, replacementStudents, coaches, sessionDate);
+  buildCoachAttendanceSheet(wb, coaches, sessions, coachAttendanceMap, coachReplacements, sessionDate);
   buildPaymentSheet(wb, allRegisteredStudents, sessions, paymentMap, paymentMonth);
+  buildCoachPaymentSheet(wb, coaches, sessions, coachPaymentMap, paymentMonth);
   return wb;
 }
