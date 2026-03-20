@@ -1,101 +1,257 @@
 import React from 'react';
-import { Calendar, TrendingUp, MoreVertical, Clock, Users as UsersIcon } from 'lucide-react';
-import { SESSIONS } from '../constants';
+import { Calendar, Clock, Users, UserCircle, CheckCircle, XCircle, Layers, TrendingUp, PlayCircle } from 'lucide-react';
+import { RegisteredStudent, RegisteredCoach, TrainingSession, Student } from '../types';
 
 interface DashboardProps {
+  sessions: TrainingSession[];
+  coaches: RegisteredCoach[];
+  students: RegisteredStudent[];
+  studentsWithStatus: Student[];        // has today's attendance status
   onStartAttendance: () => void;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ onStartAttendance }) => {
+const STATUS_STYLE: Record<string, string> = {
+  present: 'bg-secondary-container text-on-secondary-container',
+  absent:  'bg-tertiary-container text-white',
+  late:    'bg-primary-fixed text-on-primary-fixed',
+  none:    'bg-surface-container-highest text-outline',
+};
+
+const today = new Date().toLocaleDateString('en-GB', {
+  weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+});
+
+export const Dashboard: React.FC<DashboardProps> = ({
+  sessions,
+  coaches,
+  students,
+  studentsWithStatus,
+  onStartAttendance,
+}) => {
+  // Global stats
+  const totalPresent  = studentsWithStatus.filter(s => s.status === 'present').length;
+  const totalAbsent   = studentsWithStatus.filter(s => s.status === 'absent').length;
+  const totalLate     = studentsWithStatus.filter(s => s.status === 'late').length;
+  const totalMarked   = totalPresent + totalAbsent + totalLate;
+  const attendancePct = studentsWithStatus.length
+    ? Math.round((totalPresent / studentsWithStatus.length) * 100)
+    : 0;
+
+  // Build per-session data
+  const sessionData = sessions.map(sess => {
+    const sessCoaches  = coaches.filter(c  => c.sessionIds.includes(sess.id));
+    const sessStudents = students.filter(s => s.sessionIds.includes(sess.id));
+    const sessWithStatus = studentsWithStatus.filter(s =>
+      sessStudents.some(rs => rs.id === s.id)
+    );
+    const present  = sessWithStatus.filter(s => s.status === 'present').length;
+    const absent   = sessWithStatus.filter(s => s.status === 'absent').length;
+    const late     = sessWithStatus.filter(s => s.status === 'late').length;
+    const unmarked = sessWithStatus.filter(s => s.status === 'none').length;
+    return { sess, sessCoaches, sessStudents, sessWithStatus, present, absent, late, unmarked };
+  });
+
+  if (sessions.length === 0) {
+    return (
+      <div className="space-y-8">
+        <div>
+          <p className="font-label text-primary font-bold tracking-widest text-[11px] uppercase mb-2">Overview</p>
+          <h2 className="font-headline font-extrabold text-4xl text-on-background tracking-tight">Dashboard</h2>
+          <p className="text-outline text-sm mt-1">{today}</p>
+        </div>
+        <div className="text-center py-20 bg-surface-container-low rounded-3xl space-y-4">
+          <Layers size={40} className="mx-auto text-outline opacity-30" />
+          <p className="font-headline font-bold text-xl text-on-surface">No sessions configured yet</p>
+          <p className="text-outline text-sm">Go to <strong>Sessions</strong> tab to add your training sessions,<br />then register students and coaches.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-12">
-      {/* Header Section */}
-      <section>
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
-          <div>
-            <p className="font-label text-sm font-medium uppercase tracking-wider text-outline mb-1">Welcome back,</p>
-            <h2 className="font-headline font-extrabold text-4xl text-on-surface tracking-tight">Dr. Henderson</h2>
-          </div>
-          <div className="bg-surface-container-low px-4 py-2 rounded-full flex items-center gap-2 w-fit">
-            <Calendar size={16} className="text-primary" />
-            <span className="font-label text-sm font-semibold text-primary">Fall 2024 Semester</span>
-          </div>
-        </div>
+    <div className="space-y-8 pb-8">
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="col-span-1 md:col-span-2 bg-gradient-to-br from-primary to-primary-container p-8 rounded-3xl text-white relative overflow-hidden flex flex-col justify-between min-h-[220px]">
-            <div className="relative z-10">
-              <h3 className="font-headline text-2xl font-bold mb-2">Next Session Starting</h3>
-              <p className="text-on-primary-container font-medium">Advanced Theoretical Physics • Room 402</p>
-            </div>
-            <div className="relative z-10 flex items-center gap-6">
-              <div className="text-4xl font-black">09:45 AM</div>
-              <button onClick={onStartAttendance} className="bg-surface-container-lowest text-primary px-6 py-3 rounded-full font-bold shadow-sm hover:scale-105 transition-transform active:scale-95">
-                Start Attendance
-              </button>
-            </div>
-            <div className="absolute -right-12 -bottom-12 w-64 h-64 bg-white/10 rounded-full blur-3xl"></div>
-          </div>
-          <div className="bg-surface-container-low p-6 rounded-3xl flex flex-col justify-center border-l-4 border-secondary">
-            <p className="text-outline font-medium mb-1">Today's Presence</p>
-            <div className="text-5xl font-black text-on-surface mb-2">94%</div>
-            <div className="flex items-center gap-2 text-secondary font-bold text-sm">
-              <TrendingUp size={16} />
-              <span>+2% from yesterday</span>
-            </div>
-          </div>
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-3">
+        <div>
+          <p className="font-label text-primary font-bold tracking-widest text-[11px] uppercase mb-2">Overview</p>
+          <h2 className="font-headline font-extrabold text-4xl text-on-background tracking-tight">Dashboard</h2>
+          <p className="text-outline text-sm mt-1">{today}</p>
         </div>
-      </section>
+        <button
+          onClick={onStartAttendance}
+          className="flex items-center gap-2 bg-primary text-white font-bold px-6 py-3 rounded-xl shadow-md active:scale-95 transition-transform self-start md:self-auto"
+        >
+          <PlayCircle size={18} />
+          Take Attendance
+        </button>
+      </div>
 
-      {/* Schedule Section */}
-      <section className="space-y-12 pb-12">
-        {['Monday, Apr 04', 'Tuesday, Apr 05'].map((day) => (
-          <div key={day}>
-            <h3 className="font-headline font-bold text-2xl mb-6 flex items-center gap-3">
-              {day}
-              <span className="h-px flex-grow bg-outline-variant/30"></span>
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {SESSIONS.filter(s => s.date === day).map((session) => (
-                <div key={session.id} className="bg-surface-container-low hover:bg-surface-container-high transition-colors p-6 rounded-3xl group cursor-pointer relative overflow-hidden border-l-4 border-transparent hover:border-primary">
-                  <div className="flex justify-between items-start mb-4">
-                    <div className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
-                      session.status === 'ongoing' ? 'bg-secondary-container text-on-secondary-container' : 
-                      session.status === 'urgent' ? 'bg-tertiary-container text-white' : 'bg-surface-container-highest text-on-surface-variant'
-                    }`}>
-                      {session.status}
+      {/* Global stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-surface-container-low p-5 rounded-2xl">
+          <div className="flex items-center gap-2 mb-2">
+            <Layers size={15} className="text-primary" />
+            <p className="text-[11px] font-bold uppercase tracking-wider text-outline">Sessions</p>
+          </div>
+          <p className="text-3xl font-black text-on-surface">{sessions.length}</p>
+        </div>
+        <div className="bg-surface-container-low p-5 rounded-2xl">
+          <div className="flex items-center gap-2 mb-2">
+            <Users size={15} className="text-primary" />
+            <p className="text-[11px] font-bold uppercase tracking-wider text-outline">Students</p>
+          </div>
+          <p className="text-3xl font-black text-on-surface">{students.length}</p>
+        </div>
+        <div className="bg-surface-container-low p-5 rounded-2xl">
+          <div className="flex items-center gap-2 mb-2">
+            <UserCircle size={15} className="text-primary" />
+            <p className="text-[11px] font-bold uppercase tracking-wider text-outline">Coaches</p>
+          </div>
+          <p className="text-3xl font-black text-on-surface">{coaches.length}</p>
+        </div>
+        <div className={`p-5 rounded-2xl ${totalMarked > 0 ? 'bg-secondary-container/40' : 'bg-surface-container-low'}`}>
+          <div className="flex items-center gap-2 mb-2">
+            <TrendingUp size={15} className="text-secondary" />
+            <p className="text-[11px] font-bold uppercase tracking-wider text-outline">Today Present</p>
+          </div>
+          <p className={`text-3xl font-black ${totalMarked > 0 ? 'text-secondary' : 'text-outline'}`}>
+            {totalMarked > 0 ? `${attendancePct}%` : '—'}
+          </p>
+          {totalMarked > 0 && (
+            <p className="text-[10px] text-on-surface-variant mt-1">
+              {totalPresent} present · {totalAbsent} absent · {totalLate} late
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Session cards */}
+      <div className="space-y-6">
+        <h3 className="font-headline font-bold text-xl flex items-center gap-3">
+          All Sessions
+          <span className="h-px flex-grow bg-outline-variant/30" />
+        </h3>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {sessionData.map(({ sess, sessCoaches, sessStudents, sessWithStatus, present, absent, late, unmarked }) => {
+            const total = sessStudents.length;
+            const pct   = total ? Math.round((present / total) * 100) : 0;
+            const allMarked = total > 0 && unmarked === 0;
+
+            return (
+              <div key={sess.id} className="bg-surface-container-low rounded-3xl overflow-hidden flex flex-col">
+
+                {/* Session header */}
+                <div className="bg-gradient-to-r from-primary/10 to-transparent px-6 pt-5 pb-4 border-b border-outline-variant/10">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h4 className="font-headline font-extrabold text-lg text-on-surface leading-tight">{sess.name}</h4>
+                      <div className="flex items-center gap-3 mt-1.5 text-xs font-semibold text-on-surface-variant">
+                        <span className="flex items-center gap-1"><Calendar size={12} />{sess.day}</span>
+                        <span className="flex items-center gap-1"><Clock size={12} />{sess.startTime} – {sess.endTime}</span>
+                      </div>
                     </div>
-                    <button className="p-1 text-outline-variant hover:text-primary transition-colors">
-                      <MoreVertical size={20} />
-                    </button>
+                    {allMarked && (
+                      <span className="bg-secondary-container text-on-secondary-container text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider shrink-0">
+                        Done
+                      </span>
+                    )}
                   </div>
-                  <h4 className="font-headline font-bold text-xl mb-1 text-on-surface">{session.title}</h4>
-                  <div className="flex items-center gap-4 text-outline text-sm font-medium">
-                    <div className="flex items-center gap-1">
-                      <Clock size={16} />
-                      {session.time}
+
+                  {/* Attendance bar */}
+                  {total > 0 && (
+                    <div className="mt-3">
+                      <div className="flex justify-between text-[10px] font-bold text-outline mb-1">
+                        <span>{present} present · {absent} absent · {late} late · {unmarked} unmarked</span>
+                        <span>{pct}%</span>
+                      </div>
+                      <div className="h-1.5 bg-surface-container-high rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-secondary rounded-full transition-all"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <UsersIcon size={16} />
-                      {session.studentCount} Students
-                    </div>
-                  </div>
-                  <div className="mt-4 flex items-center gap-2">
-                    <img 
-                      className="w-6 h-6 rounded-full object-cover" 
-                      src={session.instructorAvatar} 
-                      alt={session.instructor} 
-                      referrerPolicy="no-referrer"
-                    />
-                    <span className="text-xs font-semibold text-on-surface-variant">{session.instructor}</span>
-                  </div>
+                  )}
                 </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </section>
+
+                <div className="px-6 py-4 flex flex-col gap-4 flex-1">
+
+                  {/* Coaches */}
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-outline mb-2 flex items-center gap-1.5">
+                      <UserCircle size={11} />Coaches ({sessCoaches.length})
+                    </p>
+                    {sessCoaches.length === 0 ? (
+                      <p className="text-xs text-outline italic">No coaches assigned</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {sessCoaches.map(c => (
+                          <div key={c.id} className="flex items-center gap-1.5 bg-secondary-container/40 text-on-secondary-container px-2.5 py-1 rounded-full">
+                            <span className="w-5 h-5 rounded-full bg-secondary-container flex items-center justify-center text-[9px] font-black">
+                              {c.initials}
+                            </span>
+                            <span className="text-[11px] font-bold">{c.name.split(' ')[0]}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Students */}
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-outline mb-2 flex items-center gap-1.5">
+                      <Users size={11} />Students ({total})
+                    </p>
+                    {total === 0 ? (
+                      <p className="text-xs text-outline italic">No students assigned</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {sessWithStatus.map(s => (
+                          <span
+                            key={s.id}
+                            title={`${s.name} — ${s.status}`}
+                            className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${STATUS_STYLE[s.status] ?? STATUS_STYLE.none}`}
+                          >
+                            {s.name.split(' ')[0]}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                </div>
+
+                {/* Footer */}
+                <div className="px-6 pb-5 flex items-center justify-between">
+                  <div className="flex items-center gap-3 text-xs font-semibold text-on-surface-variant">
+                    <span className="flex items-center gap-1 text-secondary"><CheckCircle size={12}/>{present}</span>
+                    <span className="flex items-center gap-1 text-tertiary"><XCircle size={12}/>{absent}</span>
+                    <span className="flex items-center gap-1 text-primary"><Clock size={12}/>{late}</span>
+                  </div>
+                  <button
+                    onClick={onStartAttendance}
+                    className="text-[11px] font-bold text-primary hover:underline active:opacity-70"
+                  >
+                    Mark attendance →
+                  </button>
+                </div>
+
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Legend */}
+      <div className="flex flex-wrap gap-3 text-[11px] font-semibold text-on-surface-variant">
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-secondary-container inline-block" />Present</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-tertiary-container inline-block" />Absent</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-primary-fixed inline-block" />Late</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-surface-container-highest inline-block" />Not yet marked</span>
+      </div>
+
     </div>
   );
 };

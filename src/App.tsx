@@ -122,7 +122,15 @@ export default function App() {
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return <Dashboard onStartAttendance={() => setActiveTab('sessions')} />;
+        return (
+          <Dashboard
+            sessions={trainingSessions}
+            coaches={registeredCoaches}
+            students={registeredStudents}
+            studentsWithStatus={studentsWithStatus}
+            onStartAttendance={() => setActiveTab('sessions')}
+          />
+        );
       case 'sessions':
         return (
           <SessionRoster
