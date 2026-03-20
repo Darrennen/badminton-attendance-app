@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { CheckCircle, XCircle, History, Calendar, Download, FileSpreadsheet, RefreshCw, AlertCircle, UserPlus, X, Search } from 'lucide-react';
-import { Student, AttendanceStatus, RegisteredStudent, TrainingSession } from '../types';
+import { Student, AttendanceStatus, RegisteredStudent, RegisteredCoach, TrainingSession } from '../types';
 
 interface SessionRosterProps {
   students: Student[];
@@ -10,8 +10,9 @@ interface SessionRosterProps {
   onDateChange: (date: string) => void;
   allRegisteredStudents: RegisteredStudent[];
   sessions: TrainingSession[];
-  replacements: { studentId: string; sessionId: string }[];
-  onAddReplacement: (studentId: string, sessionId: string) => void;
+  coaches: RegisteredCoach[];
+  replacements: { studentId: string; sessionId: string; coachId: string }[];
+  onAddReplacement: (studentId: string, sessionId: string, coachId: string) => void;
   onRemoveReplacement: (studentId: string) => void;
 }
 
@@ -22,6 +23,7 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
   onDateChange,
   allRegisteredStudents,
   sessions,
+  coaches,
   replacements,
   onAddReplacement,
   onRemoveReplacement,
@@ -34,14 +36,15 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
   const [showReplacementPanel, setShowReplacementPanel] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSessionId, setSelectedSessionId] = useState('');
+  const [selectedCoachId, setSelectedCoachId] = useState('');
 
   // Replacement student objects with their current attendance status
   const replacementStudents = replacements.map(r => {
     const s = students.find(st => st.id === r.studentId)
       ?? allRegisteredStudents.find(st => st.id === r.studentId);
     const status: AttendanceStatus = students.find(st => st.id === r.studentId)?.status ?? 'none';
-    return s ? { ...s, status, sessionId: r.sessionId } : null;
-  }).filter(Boolean) as (Student & { sessionId: string })[];
+    return s ? { ...s, status, sessionId: r.sessionId, coachId: r.coachId } : null;
+  }).filter(Boolean) as (Student & { sessionId: string; coachId: string })[];
 
   // Any registered student can be a replacement — even ones already on the regular roster
   // (they may have a Monday session but want a makeup on Wednesday)
@@ -71,11 +74,13 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
     Group: s.group ?? '',
     Type: 'Regular',
     'Replacement Session': '',
+    Coach: '',
     Status: s.status === 'none' ? 'Unmarked' : s.status.charAt(0).toUpperCase() + s.status.slice(1),
   }));
 
   const replacementRows = replacementStudents.map(s => {
     const sess = sessions.find(x => x.id === s.sessionId);
+    const coach = coaches.find(x => x.id === s.coachId);
     return {
       Date: sessionDate,
       Name: s.name,
@@ -83,6 +88,7 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
       Group: s.group ?? '',
       Type: 'Replacement',
       'Replacement Session': sess ? `${sess.name} (${sess.day})` : '',
+      Coach: coach ? coach.name : '',
       Status: s.status === 'none' ? 'Unmarked' : s.status.charAt(0).toUpperCase() + s.status.slice(1),
     };
   });
@@ -90,7 +96,7 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
   const allRows = [...regularRows, ...replacementRows];
 
   const exportCSV = () => {
-    const header = ['Date', 'Name', 'Student ID', 'Group', 'Type', 'Replacement Session', 'Status'];
+    const header = ['Date', 'Name', 'Student ID', 'Group', 'Type', 'Replacement Session', 'Coach', 'Status'];
     const lines = [
       header.join(','),
       ...allRows.map(r => header.map(h => `"${r[h as keyof typeof r]}"`).join(',')),
@@ -308,7 +314,7 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
             )}
           </h3>
           <button
-            onClick={() => { setShowReplacementPanel(p => !p); setSearchQuery(''); setSelectedSessionId(''); }}
+            onClick={() => { setShowReplacementPanel(p => !p); setSearchQuery(''); setSelectedSessionId(''); setSelectedCoachId(''); }}
             className="flex items-center gap-2 bg-primary text-white font-bold px-4 py-2 rounded-xl text-sm active:scale-95 transition-transform shadow-md"
           >
             <UserPlus size={15} />Add Replacement
@@ -329,21 +335,21 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
             {sessions.length > 0 && (
               <div className="px-5 pb-3">
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-outline mb-1.5">
-                  Replacing into session (optional)
+                  Replacing into session
                 </label>
                 <div className="flex flex-wrap gap-2">
                   <button
-                    onClick={() => setSelectedSessionId('')}
+                    onClick={() => { setSelectedSessionId(''); setSelectedCoachId(''); }}
                     className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
                       !selectedSessionId ? 'bg-primary text-white' : 'bg-surface-container-high text-on-surface-variant'
                     }`}
                   >
-                    Any session
+                    Unspecified
                   </button>
                   {sessions.map(s => (
                     <button
                       key={s.id}
-                      onClick={() => setSelectedSessionId(s.id)}
+                      onClick={() => { setSelectedSessionId(s.id); setSelectedCoachId(''); }}
                       className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
                         selectedSessionId === s.id ? 'bg-primary text-white' : 'bg-surface-container-high text-on-surface-variant'
                       }`}
@@ -354,6 +360,39 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
                 </div>
               </div>
             )}
+
+            {/* Coach picker — shown only when a session is selected */}
+            {selectedSessionId && (() => {
+              const sessCoaches = coaches.filter(c => c.sessionIds.includes(selectedSessionId));
+              return sessCoaches.length > 0 ? (
+                <div className="px-5 pb-3">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-outline mb-1.5">
+                    Under which coach
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setSelectedCoachId('')}
+                      className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+                        !selectedCoachId ? 'bg-secondary-container text-on-secondary-container' : 'bg-surface-container-high text-on-surface-variant'
+                      }`}
+                    >
+                      Unassigned
+                    </button>
+                    {sessCoaches.map(c => (
+                      <button
+                        key={c.id}
+                        onClick={() => setSelectedCoachId(c.id)}
+                        className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+                          selectedCoachId === c.id ? 'bg-primary text-white shadow-sm' : 'bg-surface-container-high text-on-surface-variant'
+                        }`}
+                      >
+                        {c.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null;
+            })()}
 
             {/* Search */}
             <div className="px-5 pb-3">
@@ -385,7 +424,7 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
                   </div>
                   <button
                     onClick={() => {
-                      onAddReplacement(s.id, selectedSessionId);
+                      onAddReplacement(s.id, selectedSessionId, selectedCoachId);
                       setSearchQuery('');
                     }}
                     className="bg-primary text-white font-bold text-xs px-3 py-1.5 rounded-full active:scale-95 transition-transform"
@@ -407,6 +446,7 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
 
         {replacementStudents.map(student => {
           const sess = sessions.find(x => x.id === student.sessionId);
+          const coach = coaches.find(x => x.id === student.coachId);
           return (
             <div
               key={student.id}
@@ -428,6 +468,7 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
                   <p className="text-xs text-on-surface-variant font-medium">
                     {student.studentId}
                     {sess ? ` · ${sess.name} (${sess.day})` : ''}
+                    {coach ? ` · ${coach.name}` : ''}
                   </p>
                 </div>
               </div>

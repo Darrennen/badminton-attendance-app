@@ -62,7 +62,7 @@ export default function App() {
   const [attendanceMap, setAttendanceMap] = useState<Record<string, AttendanceStatus>>(
     () => loadJSON(`attendance_${todayISO()}`, {})
   );
-  const [replacements, setReplacements] = useState<{ studentId: string; sessionId: string }[]>(
+  const [replacements, setReplacements] = useState<{ studentId: string; sessionId: string; coachId: string }[]>(
     () => loadJSON(`replacements_${todayISO()}`, [])
   );
 
@@ -90,9 +90,9 @@ export default function App() {
     saveJSON(`replacements_${sessionDate}`, replacements);
   }, [replacements, sessionDate]);
 
-  const addReplacement = (studentId: string, sessionId: string) => {
+  const addReplacement = (studentId: string, sessionId: string, coachId: string) => {
     setReplacements(prev =>
-      prev.some(r => r.studentId === studentId) ? prev : [...prev, { studentId, sessionId }]
+      prev.some(r => r.studentId === studentId) ? prev : [...prev, { studentId, sessionId, coachId }]
     );
   };
   const removeReplacement = (studentId: string) => {
@@ -159,6 +159,7 @@ export default function App() {
             onDateChange={setSessionDate}
             allRegisteredStudents={registeredStudents}
             sessions={trainingSessions}
+            coaches={registeredCoaches}
             replacements={replacements}
             onAddReplacement={addReplacement}
             onRemoveReplacement={removeReplacement}
