@@ -35,9 +35,6 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSessionId, setSelectedSessionId] = useState('');
 
-  // Build the set of student IDs already on the regular roster
-  const regularIds = new Set(students.map(s => s.id));
-
   // Replacement student objects with their current attendance status
   const replacementStudents = replacements.map(r => {
     const s = students.find(st => st.id === r.studentId)
@@ -46,9 +43,11 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
     return s ? { ...s, status, sessionId: r.sessionId } : null;
   }).filter(Boolean) as (Student & { sessionId: string })[];
 
-  // Candidates for replacement picker — exclude students already on regular roster or already added as replacement
+  // Any registered student can be a replacement — even ones already on the regular roster
+  // (they may have a Monday session but want a makeup on Wednesday)
+  // Only exclude students already added to today's replacements list
   const replacementCandidates = allRegisteredStudents.filter(s =>
-    !regularIds.has(s.id) && !replacements.some(r => r.studentId === s.id)
+    !replacements.some(r => r.studentId === s.id)
   );
 
   const filtered = replacementCandidates.filter(s =>
