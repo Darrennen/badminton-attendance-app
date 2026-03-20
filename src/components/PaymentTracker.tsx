@@ -20,6 +20,7 @@ interface Props {
   replacements: { studentId: string; sessionId: string; coachId: string }[];
   coachAttendanceMap: Record<string, import('../types').CoachAttendanceStatus>;
   coachReplacements: import('../utils/excel').CoachReplacement[];
+  monthlyCoachClassCounts: Record<string, number>;
 }
 
 export const PaymentTracker: React.FC<Props> = ({
@@ -37,6 +38,7 @@ export const PaymentTracker: React.FC<Props> = ({
   replacements,
   coachAttendanceMap,
   coachReplacements,
+  monthlyCoachClassCounts,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeSession, setActiveSession] = useState('all');
@@ -258,6 +260,9 @@ export const PaymentTracker: React.FC<Props> = ({
               {coaches.map(c => {
                 const isPaid = coachPaymentMap[c.id] === 'paid';
                 const sessNames = c.sessionIds.map(sid => sessions.find(x => x.id === sid)?.name).filter(Boolean);
+                const classes = monthlyCoachClassCounts[c.id] ?? 0;
+                const rate = c.ratePerClass;
+                const total = rate != null ? rate * classes : null;
                 return (
                   <div key={c.id} className={`p-4 rounded-2xl flex items-center justify-between transition-all border ${isPaid ? 'bg-secondary-container/20 border-secondary-container/40' : 'bg-surface-container-low border-outline-variant/10'}`}>
                     <div className="flex items-center gap-4">
@@ -269,6 +274,13 @@ export const PaymentTracker: React.FC<Props> = ({
                         <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
                           {sessNames.map(name => <span key={name} className="bg-surface-container-highest text-outline text-[9px] font-bold px-1.5 py-0.5 rounded-full">{name}</span>)}
                         </div>
+                        {rate != null ? (
+                          <p className="text-xs text-outline mt-1">
+                            RM{rate}/class × {classes} class{classes !== 1 ? 'es' : ''} = <span className="font-bold text-on-surface">RM{total}</span>
+                          </p>
+                        ) : (
+                          <p className="text-xs text-outline mt-1">{classes} class{classes !== 1 ? 'es' : ''} attended — no rate set</p>
+                        )}
                       </div>
                     </div>
                     <button onClick={() => onCoachPayment(c.id, isPaid ? 'unpaid' : 'paid')}

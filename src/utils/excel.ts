@@ -188,6 +188,7 @@ function buildCoachPaymentSheet(
   coaches: RegisteredCoach[],
   sessions: TrainingSession[],
   coachPaymentMap: Record<string, PaymentStatus>,
+  coachAttendanceMap: Record<string, CoachAttendanceStatus>,
   paymentMonth: string,
 ) {
   const sheetName = 'Coach Payments';
@@ -195,26 +196,54 @@ function buildCoachPaymentSheet(
   const sessionNames = (c: RegisteredCoach) =>
     c.sessionIds.map(sid => sessions.find(x => x.id === sid)?.name ?? '').filter(Boolean).join(', ');
 
+  // Count "present" days for each coach by scanning localStorage keys for the month
+  const classCounts: Record<string, number> = {};
+  if (typeof localStorage !== 'undefined') {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith(`coach_attendance_${paymentMonth}-`)) continue;
+      try {
+        const map: Record<string, string> = JSON.parse(localStorage.getItem(key) ?? '{}');
+        for (const [coachId, status] of Object.entries(map)) {
+          if (status === 'present') classCounts[coachId] = (classCounts[coachId] ?? 0) + 1;
+        }
+      } catch {}
+    }
+  }
+
   let rows: Record<string, string>[];
+  const makeRow = (c: RegisteredCoach) => {
+    const classes = classCounts[c.id] ?? 0;
+    const rate = c.ratePerClass ?? '';
+    const total = c.ratePerClass != null ? String(c.ratePerClass * classes) : '';
+    return {
+      Name: c.name,
+      Sessions: sessionNames(c),
+      'Rate (RM/class)': rate !== '' ? String(rate) : '',
+      'Classes Attended': String(classes),
+      'Total (RM)': total,
+      [paymentMonth]: statusLabel(c.id),
+    };
+  };
+
   if (wb.SheetNames.includes(sheetName)) {
     const existing = XLSX.utils.sheet_to_json<Record<string, string>>(wb.Sheets[sheetName], { defval: '' });
     const updatedIds = new Set<string>();
     rows = existing.map(row => {
       const c = coaches.find(x => x.name === row['Name']);
-      if (c) { updatedIds.add(c.id); return { ...row, [paymentMonth]: statusLabel(c.id) }; }
+      if (c) {
+        updatedIds.add(c.id);
+        return { ...makeRow(c), ...Object.fromEntries(Object.entries(row).filter(([k]) => k !== 'Name' && k !== 'Sessions' && k !== 'Rate (RM/class)' && k !== 'Classes Attended' && k !== 'Total (RM)')), ...{ [paymentMonth]: statusLabel(c.id) } };
+      }
       return row;
     });
-    coaches.filter(c => !updatedIds.has(c.id)).forEach(c =>
-      rows.push({ Name: c.name, Sessions: sessionNames(c), [paymentMonth]: statusLabel(c.id) })
-    );
+    coaches.filter(c => !updatedIds.has(c.id)).forEach(c => rows.push(makeRow(c)));
   } else {
-    rows = coaches.map(c => ({
-      Name: c.name, Sessions: sessionNames(c), [paymentMonth]: statusLabel(c.id),
-    }));
+    rows = coaches.map(makeRow);
   }
 
   upsertSheet(wb, sheetName, XLSX.utils.json_to_sheet(rows));
-  styleSheet(wb.Sheets[sheetName], rows, 2);
+  styleSheet(wb.Sheets[sheetName], rows, 5);
 }
 
 // ─── Combined workbook ────────────────────────────────────────────────────────
@@ -236,6 +265,6 @@ export function buildCombinedWorkbook(
   buildAttendanceSheets(wb, sessions, allRegisteredStudents, students, replacementStudents, coaches, sessionDate);
   buildCoachAttendanceSheet(wb, coaches, sessions, coachAttendanceMap, coachReplacements, sessionDate);
   buildPaymentSheet(wb, allRegisteredStudents, sessions, paymentMap, paymentMonth);
-  buildCoachPaymentSheet(wb, coaches, sessions, coachPaymentMap, paymentMonth);
+  buildCoachPaymentSheet(wb, coaches, sessions, coachPaymentMap, coachAttendanceMap, paymentMonth);
   return wb;
 }

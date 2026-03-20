@@ -34,6 +34,7 @@ export interface RegisteredCoach {
   sessionIds: string[];
   initials: string;
   coachStatus: 'active' | 'on-break' | 'replace';
+  ratePerClass?: number;
   registeredAt: string;
 }
 

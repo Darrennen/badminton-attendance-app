@@ -15,6 +15,7 @@ const blank = () => ({
   icNumber: '',
   phone: '',
   sessionIds: [] as string[],
+  ratePerClass: '' as string | number,
 });
 
 export const RegisterCoaches: React.FC<Props> = ({ coaches, sessions, onAdd, onUpdate, onDelete }) => {
@@ -40,6 +41,7 @@ export const RegisterCoaches: React.FC<Props> = ({ coaches, sessions, onAdd, onU
       icNumber: c.icNumber,
       phone: c.phone,
       sessionIds: [...c.sessionIds],
+      ratePerClass: c.ratePerClass ?? '',
     });
     setError('');
     setShowForm(true);
@@ -61,6 +63,8 @@ export const RegisterCoaches: React.FC<Props> = ({ coaches, sessions, onAdd, onU
 
     const initials = form.name.trim().split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
 
+    const ratePerClass = form.ratePerClass !== '' ? Number(form.ratePerClass) : undefined;
+
     if (editingId) {
       const existing = coaches.find(c => c.id === editingId)!;
       onUpdate({
@@ -70,6 +74,7 @@ export const RegisterCoaches: React.FC<Props> = ({ coaches, sessions, onAdd, onU
         phone: form.phone.trim(),
         sessionIds: form.sessionIds,
         initials,
+        ratePerClass,
       });
       setSuccessMsg(`${form.name.trim()} updated successfully!`);
       setEditingId(null);
@@ -82,6 +87,7 @@ export const RegisterCoaches: React.FC<Props> = ({ coaches, sessions, onAdd, onU
         sessionIds: form.sessionIds,
         initials,
         coachStatus: 'active',
+        ratePerClass,
         registeredAt: new Date().toISOString(),
       };
       onAdd(coach);
@@ -170,6 +176,18 @@ export const RegisterCoaches: React.FC<Props> = ({ coaches, sessions, onAdd, onU
                   placeholder="e.g. 012-3456789"
                 />
               </div>
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-outline mb-1.5">Rate per Class (RM)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.ratePerClass}
+                  onChange={e => setForm(p => ({ ...p, ratePerClass: e.target.value }))}
+                  className="w-full px-4 py-3 bg-surface-container-high rounded-xl text-on-surface font-medium focus:outline-none focus:ring-2 focus:ring-primary/30 text-sm"
+                  placeholder="e.g. 50"
+                />
+              </div>
             </div>
 
             <div>
@@ -249,6 +267,11 @@ export const RegisterCoaches: React.FC<Props> = ({ coaches, sessions, onAdd, onU
                     <div className="flex items-center gap-2 text-on-surface-variant">
                       <Phone size={14} className="text-outline shrink-0" />
                       <p>{c.phone || '—'}</p>
+                      {c.ratePerClass != null && (
+                        <span className="ml-2 bg-primary-container text-on-primary-container text-[10px] font-bold px-2 py-0.5 rounded-full">
+                          RM{c.ratePerClass}/class
+                        </span>
+                      )}
                     </div>
                     <div className="flex flex-wrap gap-1.5 items-start">
                       {c.sessionIds.length === 0 ? (

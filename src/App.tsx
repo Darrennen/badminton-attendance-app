@@ -113,6 +113,21 @@ export default function App() {
   const handleCoachPaymentStatus = (coachId: string, status: PaymentStatus) =>
     setCoachPaymentMap(prev => ({ ...prev, [coachId]: status }));
 
+  const getMonthlyCoachClassCounts = (month: string): Record<string, number> => {
+    const counts: Record<string, number> = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith(`coach_attendance_${month}-`)) continue;
+      try {
+        const map: Record<string, string> = JSON.parse(localStorage.getItem(key) ?? '{}');
+        for (const [coachId, status] of Object.entries(map)) {
+          if (status === 'present') counts[coachId] = (counts[coachId] ?? 0) + 1;
+        }
+      } catch {}
+    }
+    return counts;
+  };
+
   // --- Coach attendance state (per date) ---
   const [coachAttendanceMap, setCoachAttendanceMap] = useState<Record<string, CoachAttendanceStatus>>(
     () => loadJSON(`coach_attendance_${todayISO()}`, {})
@@ -270,6 +285,7 @@ export default function App() {
             replacements={replacements}
             coachAttendanceMap={coachAttendanceMap}
             coachReplacements={coachReplacements}
+            monthlyCoachClassCounts={getMonthlyCoachClassCounts(paymentMonth)}
           />
         );
       case 'settings':
