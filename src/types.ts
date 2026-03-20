@@ -18,6 +18,7 @@ export interface RegisteredStudent {
   emergencyContactName: string;
   emergencyContactPhone: string;
   sessionIds: string[];
+  sessionCoachMap: Record<string, string>; // sessionId → coachId
   avatar?: string;
   group?: string;
   registeredAt: string;

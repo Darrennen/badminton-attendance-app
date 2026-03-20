@@ -199,26 +199,64 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     )}
                   </div>
 
-                  {/* Students */}
+                  {/* Students grouped by coach */}
                   <div>
                     <p className="text-[10px] font-bold uppercase tracking-widest text-outline mb-2 flex items-center gap-1.5">
                       <Users size={11} />Students ({total})
                     </p>
                     {total === 0 ? (
                       <p className="text-xs text-outline italic">No students assigned</p>
-                    ) : (
-                      <div className="flex flex-wrap gap-1.5">
-                        {sessWithStatus.map(s => (
-                          <span
-                            key={s.id}
-                            title={`${s.name} — ${s.status}`}
-                            className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${STATUS_STYLE[s.status] ?? STATUS_STYLE.none}`}
-                          >
-                            {s.name.split(' ')[0]}
-                          </span>
-                        ))}
-                      </div>
-                    )}
+                    ) : (() => {
+                      // Build coach → students map for this session
+                      const coachGroups: { coach: typeof sessCoaches[0] | null; coachId: string; studs: typeof sessWithStatus }[] = [];
+                      const seen = new Set<string>();
+
+                      // First pass: coaches that have students
+                      sessCoaches.forEach(c => {
+                        const studs = sessStudents
+                          .filter(rs => (rs.sessionCoachMap ?? {})[sess.id] === c.id)
+                          .map(rs => sessWithStatus.find(sw => sw.id === rs.id))
+                          .filter(Boolean) as typeof sessWithStatus;
+                        if (studs.length > 0) {
+                          coachGroups.push({ coach: c, coachId: c.id, studs });
+                          studs.forEach(s => seen.add(s.id));
+                        }
+                      });
+
+                      // Unassigned students
+                      const unassigned = sessWithStatus.filter(s => !seen.has(s.id));
+                      if (unassigned.length > 0) {
+                        coachGroups.push({ coach: null, coachId: '', studs: unassigned });
+                      }
+
+                      return (
+                        <div className="space-y-3">
+                          {coachGroups.map(({ coach, coachId, studs }) => (
+                            <div key={coachId || '__unassigned'}>
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <span className="w-4 h-4 rounded-full bg-secondary-container flex items-center justify-center text-[8px] font-black text-on-secondary-container shrink-0">
+                                  {coach ? coach.initials : '?'}
+                                </span>
+                                <span className="text-[10px] font-bold text-on-surface-variant">
+                                  {coach ? coach.name : 'Unassigned'}
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap gap-1.5 pl-5">
+                                {studs.map(s => (
+                                  <span
+                                    key={s.id}
+                                    title={`${s.name} — ${s.status}`}
+                                    className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${STATUS_STYLE[s.status] ?? STATUS_STYLE.none}`}
+                                  >
+                                    {s.name.split(' ')[0]}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
                   </div>
 
                 </div>

@@ -153,6 +153,7 @@ export default function App() {
           <RegisterStudents
             students={registeredStudents}
             sessions={trainingSessions}
+            coaches={registeredCoaches}
             onAdd={addStudent}
             onUpdate={updateStudent}
             onDelete={deleteStudent}
