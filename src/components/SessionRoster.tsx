@@ -3,6 +3,116 @@ import * as XLSX from 'xlsx';
 import { CheckCircle, XCircle, History, Calendar, Download, FileSpreadsheet, RefreshCw, AlertCircle, UserPlus, X, Search } from 'lucide-react';
 import { Student, AttendanceStatus, RegisteredStudent, RegisteredCoach, TrainingSession } from '../types';
 
+type ReplacementStudent = Student & { sessionId: string; coachId: string };
+
+// Build (or update) a pivot workbook where each session is its own sheet:
+//   Rows = students,  Columns = Name | Student ID | Group | date1 | date2 | …
+// Replacements go on a separate flat "Replacements" sheet.
+function buildPivotWorkbook(
+  sessions: TrainingSession[],
+  allRegisteredStudents: RegisteredStudent[],
+  students: Student[],
+  replacementStudents: ReplacementStudent[],
+  coaches: RegisteredCoach[],
+  sessionDate: string,
+  baseWb?: XLSX.WorkBook,
+): XLSX.WorkBook {
+  const wb = baseWb ?? XLSX.utils.book_new();
+
+  const statusLabel = (id: string) => {
+    const st = students.find(x => x.id === id)?.status ?? 'none';
+    return st === 'none' ? 'Unmarked' : st.charAt(0).toUpperCase() + st.slice(1);
+  };
+
+  // --- One pivot sheet per session ---
+  sessions.forEach(sess => {
+    const sheetName = sess.name.slice(0, 31);
+    const sessStudents = allRegisteredStudents.filter(s => s.sessionIds.includes(sess.id));
+
+    let rows: Record<string, string>[];
+
+    if (baseWb?.SheetNames.includes(sheetName)) {
+      // Existing sheet: read rows, update today's column, add any new students
+      const existing = XLSX.utils.sheet_to_json<Record<string, string>>(
+        baseWb.Sheets[sheetName], { defval: '' }
+      );
+      const updatedIds = new Set<string>();
+      rows = existing.map(row => {
+        const rs = allRegisteredStudents.find(s => s.studentId === row['Student ID']);
+        if (rs && sessStudents.some(ss => ss.id === rs.id)) {
+          updatedIds.add(rs.studentId);
+          return { ...row, [sessionDate]: statusLabel(rs.id) };
+        }
+        return row;
+      });
+      // Append students registered after the sheet was first created
+      sessStudents
+        .filter(s => !updatedIds.has(s.studentId))
+        .forEach(s => rows.push({
+          Name: s.name, 'Student ID': s.studentId, Group: s.group ?? '',
+          [sessionDate]: statusLabel(s.id),
+        }));
+    } else {
+      // New sheet
+      rows = sessStudents.map(s => ({
+        Name: s.name, 'Student ID': s.studentId, Group: s.group ?? '',
+        [sessionDate]: statusLabel(s.id),
+      }));
+    }
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    if (baseWb?.SheetNames.includes(sheetName)) {
+      wb.Sheets[sheetName] = ws;
+    } else {
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    }
+  });
+
+  // --- Replacements sheet (flat: Date | Name | Student ID | Session | Coach | Status) ---
+  if (replacementStudents.length > 0 || (baseWb?.SheetNames.includes('Replacements'))) {
+    const replSheetName = 'Replacements';
+    const todayReplRows = replacementStudents.map(r => {
+      const sess = sessions.find(x => x.id === r.sessionId);
+      const coach = coaches.find(x => x.id === r.coachId);
+      const st = r.status === 'none' ? 'Unmarked' : r.status.charAt(0).toUpperCase() + r.status.slice(1);
+      return {
+        Date: sessionDate,
+        Name: r.name,
+        'Student ID': r.studentId,
+        Group: r.group ?? '',
+        Session: sess ? `${sess.name} (${sess.day})` : 'Unspecified',
+        Coach: coach ? coach.name : '',
+        Status: st,
+      };
+    });
+
+    let replRows: Record<string, string>[];
+    if (baseWb?.SheetNames.includes(replSheetName)) {
+      const existing = XLSX.utils.sheet_to_json<Record<string, string>>(
+        baseWb.Sheets[replSheetName], { defval: '' }
+      );
+      // Remove today's entries then re-add fresh
+      replRows = [
+        ...existing.filter(r => r['Date'] !== sessionDate),
+        ...todayReplRows,
+      ];
+    } else {
+      replRows = todayReplRows;
+    }
+
+    if (replRows.length > 0) {
+      const ws = XLSX.utils.json_to_sheet(replRows);
+      if (baseWb?.SheetNames.includes(replSheetName)) {
+        wb.Sheets[replSheetName] = ws;
+      } else {
+        XLSX.utils.book_append_sheet(wb, ws, replSheetName);
+      }
+    }
+  }
+
+  return wb;
+}
+
 interface SessionRosterProps {
   students: Student[];
   onStatusChange: (id: string, status: AttendanceStatus) => void;
@@ -44,7 +154,7 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
       ?? allRegisteredStudents.find(st => st.id === r.studentId);
     const status: AttendanceStatus = students.find(st => st.id === r.studentId)?.status ?? 'none';
     return s ? { ...s, status, sessionId: r.sessionId, coachId: r.coachId } : null;
-  }).filter(Boolean) as (Student & { sessionId: string; coachId: string })[];
+  }).filter(Boolean) as ReplacementStudent[];
 
   // Any registered student can be a replacement — even ones already on the regular roster
   // (they may have a Monday session but want a makeup on Wednesday)
@@ -67,53 +177,43 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
   const unmarkedCount = students.filter(s => s.status === 'none').length
     + replacementStudents.filter(s => s.status === 'none').length;
 
-  const regularRows = students.map(s => ({
-    Date: sessionDate,
-    Name: s.name,
-    'Student ID': s.studentId,
-    Group: s.group ?? '',
-    Type: 'Regular',
-    'Replacement Session': '',
-    Coach: '',
-    Status: s.status === 'none' ? 'Unmarked' : s.status.charAt(0).toUpperCase() + s.status.slice(1),
-  }));
-
-  const replacementRows = replacementStudents.map(s => {
-    const sess = sessions.find(x => x.id === s.sessionId);
-    const coach = coaches.find(x => x.id === s.coachId);
-    return {
-      Date: sessionDate,
-      Name: s.name,
-      'Student ID': s.studentId,
-      Group: s.group ?? '',
-      Type: 'Replacement',
-      'Replacement Session': sess ? `${sess.name} (${sess.day})` : '',
-      Coach: coach ? coach.name : '',
-      Status: s.status === 'none' ? 'Unmarked' : s.status.charAt(0).toUpperCase() + s.status.slice(1),
-    };
-  });
-
-  const allRows = [...regularRows, ...replacementRows];
-
+  // CSV stays flat (CSV can't do multiple sheets)
   const exportCSV = () => {
-    const header = ['Date', 'Name', 'Student ID', 'Group', 'Type', 'Replacement Session', 'Coach', 'Status'];
-    const lines = [
-      header.join(','),
-      ...allRows.map(r => header.map(h => `"${r[h as keyof typeof r]}"`).join(',')),
+    const header = ['Date', 'Name', 'Student ID', 'Group', 'Session', 'Type', 'Coach', 'Status'];
+    const rows = [
+      ...students.flatMap(s => {
+        const sessNames = allRegisteredStudents
+          .find(rs => rs.id === s.id)?.sessionIds
+          .map(sid => sessions.find(x => x.id === sid)?.name ?? '')
+          .filter(Boolean) ?? [];
+        return [{
+          Date: sessionDate, Name: s.name, 'Student ID': s.studentId,
+          Group: s.group ?? '', Session: sessNames.join(', '), Type: 'Regular', Coach: '',
+          Status: s.status === 'none' ? 'Unmarked' : s.status.charAt(0).toUpperCase() + s.status.slice(1),
+        }];
+      }),
+      ...replacementStudents.map(s => {
+        const sess = sessions.find(x => x.id === s.sessionId);
+        const coach = coaches.find(x => x.id === s.coachId);
+        return {
+          Date: sessionDate, Name: s.name, 'Student ID': s.studentId, Group: s.group ?? '',
+          Session: sess ? `${sess.name} (${sess.day})` : '', Type: 'Replacement',
+          Coach: coach?.name ?? '',
+          Status: s.status === 'none' ? 'Unmarked' : s.status.charAt(0).toUpperCase() + s.status.slice(1),
+        };
+      }),
     ];
+    const lines = [header.join(','), ...rows.map(r => header.map(h => `"${r[h as keyof typeof r]}"`).join(','))];
     const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
-    a.download = `attendance_${sessionDate}.csv`;
-    a.click();
+    a.href = url; a.download = `attendance_${sessionDate}.csv`; a.click();
     URL.revokeObjectURL(url);
   };
 
+  // XLSX: pivot format — one sheet per session, dates as columns
   const exportXLSX = () => {
-    const ws = XLSX.utils.json_to_sheet(allRows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
+    const wb = buildPivotWorkbook(sessions, allRegisteredStudents, students, replacementStudents, coaches, sessionDate);
     XLSX.writeFile(wb, `attendance_${sessionDate}.xlsx`);
   };
 
@@ -125,22 +225,12 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
     reader.onload = (evt) => {
       try {
         const data = new Uint8Array(evt.target!.result as ArrayBuffer);
-        const wb = XLSX.read(data, { type: 'array' });
-        const sheetName =
-          wb.SheetNames.find(n => /attend/i.test(n)) ?? wb.SheetNames[0];
-        const ws = wb.Sheets[sheetName];
-        const existing: Record<string, string>[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
-        const withoutToday = existing.filter(row => {
-          const rowDate = String(row['Date'] ?? row['date'] ?? '').trim();
-          return rowDate !== sessionDate;
-        });
-        const merged = [...withoutToday, ...allRows];
-        const newWs = XLSX.utils.json_to_sheet(merged);
-        wb.Sheets[sheetName] = newWs;
+        const baseWb = XLSX.read(data, { type: 'array' });
+        buildPivotWorkbook(sessions, allRegisteredStudents, students, replacementStudents, coaches, sessionDate, baseWb);
         const originalName = file.name.replace(/\.xlsx?$/i, '');
-        XLSX.writeFile(wb, `${originalName}_synced_${sessionDate}.xlsx`);
+        XLSX.writeFile(baseWb, `${originalName}.xlsx`);
         setSyncStatus('success');
-        setSyncMsg(`Synced! ${allRows.length} rows appended (${replacementRows.length} replacements) — downloading.`);
+        setSyncMsg(`Synced! ${sessionDate} column updated across ${sessions.length} session sheet${sessions.length !== 1 ? 's' : ''}.`);
       } catch {
         setSyncStatus('error');
         setSyncMsg('Could not read the file. Make sure it is a valid .xlsx or .xls file.');
