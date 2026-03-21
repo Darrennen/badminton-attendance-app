@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import { CheckCircle, XCircle, History, Calendar, Download, FileSpreadsheet, RefreshCw, AlertCircle, UserPlus, X, Search } from 'lucide-react';
 import { Student, AttendanceStatus, CoachAttendanceStatus, RegisteredStudent, RegisteredCoach, TrainingSession, PaymentStatus } from '../types';
 import { buildCombinedWorkbook, ReplacementStudent, CoachReplacement } from '../utils/excel';
