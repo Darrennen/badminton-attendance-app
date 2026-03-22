@@ -24,6 +24,7 @@ interface Props {
   expenses: MonthlyExpense[];
   onAddExpense: (e: MonthlyExpense) => void;
   onRemoveExpense: (id: string) => void;
+  activeBranchId?: string;
 }
 
 export const PaymentTracker: React.FC<Props> = ({
@@ -45,6 +46,7 @@ export const PaymentTracker: React.FC<Props> = ({
   expenses,
   onAddExpense,
   onRemoveExpense,
+  activeBranchId = 'main',
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeSession, setActiveSession] = useState('all');
@@ -82,7 +84,7 @@ export const PaymentTracker: React.FC<Props> = ({
   const [newExpenseAmount, setNewExpenseAmount] = useState('');
 
   const exportXLSX = () => {
-    const wb = buildCombinedWorkbook(sessions, students, studentsWithStatus, replacementStudents, coaches, sessionDate, paymentMap, paymentMonth, coachAttendanceMap, coachReplacements, coachPaymentMap, undefined, expenses);
+    const wb = buildCombinedWorkbook(sessions, students, studentsWithStatus, replacementStudents, coaches, sessionDate, paymentMap, paymentMonth, coachAttendanceMap, coachReplacements, coachPaymentMap, undefined, expenses, activeBranchId);
     XLSX.writeFile(wb, `badminton_${paymentMonth}.xlsx`);
   };
 
@@ -95,7 +97,7 @@ export const PaymentTracker: React.FC<Props> = ({
       try {
         const data = new Uint8Array(evt.target!.result as ArrayBuffer);
         const baseWb = XLSX.read(data, { type: 'array' });
-        buildCombinedWorkbook(sessions, students, studentsWithStatus, replacementStudents, coaches, sessionDate, paymentMap, paymentMonth, coachAttendanceMap, coachReplacements, coachPaymentMap, baseWb, expenses);
+        buildCombinedWorkbook(sessions, students, studentsWithStatus, replacementStudents, coaches, sessionDate, paymentMap, paymentMonth, coachAttendanceMap, coachReplacements, coachPaymentMap, baseWb, expenses, activeBranchId);
         XLSX.writeFile(baseWb, `badminton_file_${new Date().toISOString().slice(0, 10)}.xlsx`);
         setSyncStatus('success');
         setSyncMsg(`Synced! Student & coach payments (${paymentMonth}) updated.`);

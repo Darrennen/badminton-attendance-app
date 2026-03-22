@@ -22,6 +22,7 @@ interface SessionRosterProps {
   coachPaymentMap: Record<string, PaymentStatus>;
   onCoachAttendance: (coachId: string, status: CoachAttendanceStatus) => void;
   onSetCoachReplacement: (coachId: string, replacedById: string, sessionId: string) => void;
+  activeBranchId?: string;
 }
 
 export const SessionRoster: React.FC<SessionRosterProps> = ({
@@ -42,6 +43,7 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
   coachPaymentMap,
   onCoachAttendance,
   onSetCoachReplacement,
+  activeBranchId = 'main',
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'success' | 'error'>('idle');
@@ -120,7 +122,7 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
   };
 
   const exportXLSX = () => {
-    const wb = buildCombinedWorkbook(sessions, allRegisteredStudents, students, replacementStudents, coaches, sessionDate, paymentMap, paymentMonth, coachAttendanceMap, coachReplacements, coachPaymentMap);
+    const wb = buildCombinedWorkbook(sessions, allRegisteredStudents, students, replacementStudents, coaches, sessionDate, paymentMap, paymentMonth, coachAttendanceMap, coachReplacements, coachPaymentMap, undefined, [], activeBranchId);
     XLSX.writeFile(wb, `badminton_${sessionDate}.xlsx`);
   };
 
@@ -133,7 +135,7 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
       try {
         const data = new Uint8Array(evt.target!.result as ArrayBuffer);
         const baseWb = XLSX.read(data, { type: 'array' });
-        buildCombinedWorkbook(sessions, allRegisteredStudents, students, replacementStudents, coaches, sessionDate, paymentMap, paymentMonth, coachAttendanceMap, coachReplacements, coachPaymentMap, baseWb);
+        buildCombinedWorkbook(sessions, allRegisteredStudents, students, replacementStudents, coaches, sessionDate, paymentMap, paymentMonth, coachAttendanceMap, coachReplacements, coachPaymentMap, baseWb, [], activeBranchId);
         XLSX.writeFile(baseWb, `badminton_file_${new Date().toISOString().slice(0, 10)}.xlsx`);
         setSyncStatus('success');
         setSyncMsg(`Synced! Attendance (${sessionDate}) and payments (${paymentMonth}) updated.`);

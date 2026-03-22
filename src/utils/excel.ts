@@ -174,12 +174,13 @@ const sessLabels = (ids: string[], sessions: TrainingSession[]) =>
 const isOnBreakInMonth = (s: RegisteredStudent, month: string) =>
   s.breakPeriods?.some(bp => bp.from <= `${month}-31` && bp.to >= `${month}-01`) ?? false;
 
-function computeClassCounts(paymentMonth: string): Record<string, number> {
+function computeClassCounts(paymentMonth: string, branchId = 'main'): Record<string, number> {
   const counts: Record<string, number> = {};
   if (typeof localStorage === 'undefined') return counts;
+  const prefix = `branch_${branchId}_coach_attendance_${paymentMonth}-`;
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
-    if (!key?.startsWith(`coach_attendance_${paymentMonth}-`)) continue;
+    if (!key?.startsWith(prefix)) continue;
     try {
       const map: Record<string, string> = JSON.parse(localStorage.getItem(key) ?? '{}');
       for (const [coachId, status] of Object.entries(map)) {
@@ -893,6 +894,143 @@ function buildFinancialAuditSheet(
   upsertSheet(wb, `Audit ${paymentMonth}`, ws);
 }
 
+// ─── Consolidated Multi-Branch Sheet ─────────────────────────────────────────
+function buildConsolidatedSheet(
+  wb: XLSX.WorkBook,
+  branches: { id: string; name: string; location?: string }[],
+  paymentMonth: string,
+) {
+  if (branches.length < 2) return; // only show when multiple branches
+  if (typeof localStorage === 'undefined') return;
+
+  const monthLabel = new Date(`${paymentMonth}-01`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }).toUpperCase();
+  const E = '';
+  const NC = 7;
+
+  let grandRevenue = 0, grandCoachCost = 0, grandOther = 0;
+
+  type BranchRow = (string | number)[];
+  const branchRows: BranchRow[] = [];
+
+  branches.forEach(branch => {
+    const bPrefix = `branch_${branch.id}_`;
+    const loadB = <T,>(key: string, fb: T): T => {
+      try { const v = localStorage.getItem(bPrefix + key); if (v) return JSON.parse(v); } catch {}
+      return fb;
+    };
+    const students: RegisteredStudent[] = loadB('registered_students', []);
+    const coaches: RegisteredCoach[]    = loadB('registered_coaches',  []);
+    const payMap:  Record<string, PaymentStatus> = loadB(`payments_${paymentMonth}`, {});
+    const exps:    MonthlyExpense[]     = loadB(`expenses_${paymentMonth}`, []);
+    const cc = computeClassCounts(paymentMonth, branch.id);
+
+    const activeStudents = students.filter(s => !isOnBreakInMonth(s, paymentMonth));
+    const revenue  = activeStudents.filter(s => payMap[s.id] === 'paid').reduce((n, s) => n + (s.monthlyFee ?? 0), 0);
+    const coachCost = coaches.reduce((n, c) => n + (c.ratePerClass != null ? c.ratePerClass * (cc[c.id] ?? 0) : 0), 0);
+    const other    = exps.reduce((n, e) => n + e.amount, 0);
+    const net      = revenue - coachCost - other;
+
+    grandRevenue   += revenue;
+    grandCoachCost += coachCost;
+    grandOther     += other;
+
+    branchRows.push([
+      branch.name,
+      branch.location ?? '',
+      students.length,
+      activeStudents.length,
+      revenue,
+      coachCost,
+      other,
+    ]);
+  });
+
+  const grandNet = grandRevenue - grandCoachCost - grandOther;
+
+  const aoa: (string | number)[][] = [];
+  const meta: string[] = [];
+  const push = (row: (string | number)[], m: string) => { aoa.push(row); meta.push(m); };
+
+  push([`CONSOLIDATED REPORT — ALL BRANCHES — ${monthLabel}`, E, E, E, E, E, E], 'title');
+  push([`Exported: ${new Date().toLocaleString('en-GB')}`, E, E, E, E, E, E], 'subtitle');
+  push([E, E, E, E, E, E, E], 'blank');
+
+  push(['GRAND TOTALS ACROSS ALL BRANCHES', E, E, E, E, E, E], 'section-nav');
+  push(['Total Revenue (All Branches) (RM)', E, E, E, E, grandRevenue, E], 'kpi-plain');
+  push(['Total Coach Costs (All Branches) (RM)', E, E, E, E, grandCoachCost, E], 'kpi-plain');
+  push(['Total Other Expenses (All Branches) (RM)', E, E, E, E, grandOther, E], 'kpi-plain');
+  push(['NET PROFIT / LOSS (All Branches) (RM)', E, E, E, E, grandNet, grandNet >= 0 ? '▲ PROFIT' : '▼ LOSS'], grandNet >= 0 ? 'net-profit' : 'net-loss');
+  push([E, E, E, E, E, E, E], 'blank');
+
+  push(['BRANCH BREAKDOWN', 'Location', 'Total Students', 'Active Students', 'Revenue (RM)', 'Coach Costs (RM)', 'Other Expenses (RM)'], 'hdr-teal');
+  branchRows.forEach((row, i) => push(row, i % 2 === 0 ? 'data-even' : 'data-odd'));
+  push(['TOTAL', E, E, E, grandRevenue, grandCoachCost, grandOther], 'subtotal');
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  setCols(ws, [30, 18, 16, 16, 16, 18, 20]);
+
+  // Style pass
+  aoa.forEach((_, r) => {
+    const m = meta[r];
+    if (m === 'title') {
+      merge(ws, r, 0, r, NC - 1);
+      styleRow(ws, r, NC, S.title);
+    } else if (m === 'subtitle') {
+      merge(ws, r, 0, r, NC - 1);
+      styleRow(ws, r, NC, S.subtitle);
+    } else if (m === 'blank') {
+      styleRow(ws, r, NC, S.empty);
+    } else if (m === 'section-nav') {
+      merge(ws, r, 0, r, NC - 1);
+      styleRow(ws, r, NC, S.sectionNav);
+    } else if (m === 'hdr-teal') {
+      styleRow(ws, r, NC, S.hdrTeal);
+    } else if (m === 'kpi-plain') {
+      for (let c = 0; c < NC; c++) {
+        const cell = ws[ec(r, c)];
+        if (!cell) continue;
+        cell.s = typeof cell.v === 'number' ? S.kpiNum : S.kpiLabel;
+      }
+    } else if (m === 'net-profit') {
+      for (let c = 0; c < NC; c++) {
+        const cell = ws[ec(r, c)];
+        if (!cell) continue;
+        cell.s = typeof cell.v === 'number' ? S.profitNum : S.profit;
+      }
+    } else if (m === 'net-loss') {
+      for (let c = 0; c < NC; c++) {
+        const cell = ws[ec(r, c)];
+        if (!cell) continue;
+        cell.s = typeof cell.v === 'number' ? S.lossNum : S.loss;
+      }
+    } else if (m === 'subtotal') {
+      for (let c = 0; c < NC; c++) {
+        const cell = ws[ec(r, c)];
+        if (!cell) continue;
+        cell.s = typeof cell.v === 'number' ? S.subtotalNum : S.subtotal;
+      }
+    } else if (m === 'data-even') {
+      for (let c = 0; c < NC; c++) {
+        const cell = ws[ec(r, c)];
+        if (!cell) continue;
+        cell.s = typeof cell.v === 'number' ? S.dataNum : S.dataEven;
+      }
+    } else if (m === 'data-odd') {
+      for (let c = 0; c < NC; c++) {
+        const cell = ws[ec(r, c)];
+        if (!cell) continue;
+        cell.s = typeof cell.v === 'number' ? S.dataNumOdd : S.dataOdd;
+      }
+    }
+  });
+
+  upsertSheet(wb, 'Consolidated', ws);
+  // Place Consolidated right after Overview
+  const idx = wb.SheetNames.indexOf('Overview');
+  wb.SheetNames = wb.SheetNames.filter(n => n !== 'Consolidated');
+  wb.SheetNames.splice(idx + 1, 0, 'Consolidated');
+}
+
 // ─── Combined Workbook ────────────────────────────────────────────────────────
 export function buildCombinedWorkbook(
   sessions: TrainingSession[],
@@ -908,14 +1046,17 @@ export function buildCombinedWorkbook(
   coachPaymentMap: Record<string, PaymentStatus>,
   baseWb?: XLSX.WorkBook,
   expenses: MonthlyExpense[] = [],
+  activeBranchId = 'main',
+  branches: { id: string; name: string; location?: string }[] = [],
 ): XLSX.WorkBook {
   const wb = baseWb ?? XLSX.utils.book_new();
-  const classCounts = computeClassCounts(paymentMonth);
+  const classCounts = computeClassCounts(paymentMonth, activeBranchId);
   buildAttendanceSheets(wb, sessions, allRegisteredStudents, students, replacementStudents, coaches, sessionDate);
   buildCoachAttendanceSheet(wb, coaches, sessions, coachAttendanceMap, coachReplacements, sessionDate);
   buildPaymentSheet(wb, allRegisteredStudents, sessions, paymentMap, paymentMonth);
   buildCoachPaymentSheet(wb, coaches, sessions, coachPaymentMap, classCounts, paymentMonth);
   buildFinancialAuditSheet(wb, allRegisteredStudents, sessions, coaches, paymentMap, coachPaymentMap, classCounts, expenses, paymentMonth);
   buildOverviewSheet(wb, sessions, allRegisteredStudents, coaches, paymentMap, coachPaymentMap, expenses, classCounts, sessionDate, paymentMonth);
+  if (branches.length > 1) buildConsolidatedSheet(wb, branches, paymentMonth);
   return wb;
 }
