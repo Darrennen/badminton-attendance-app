@@ -25,6 +25,74 @@ interface SessionRosterProps {
   activeBranchId?: string;
 }
 
+// ─── Sub-components ───────────────────────────────────────────────────────────
+interface StatusButtonsProps { student: Student; onStatusChange: (id: string, status: AttendanceStatus) => void; }
+const StatusButtons: React.FC<StatusButtonsProps> = ({ student, onStatusChange }) => (
+  <div className="flex gap-1.5">
+    {(['present', 'absent', 'late'] as AttendanceStatus[]).map(s => (
+      <button
+        key={s}
+        onClick={() => onStatusChange(student.id, s)}
+        className={`px-3 py-1.5 rounded-full font-label text-[11px] font-bold tracking-wider uppercase transition-all active:scale-95 ${
+          student.status === s
+            ? s === 'present' ? 'bg-secondary-container text-on-secondary-container'
+              : s === 'absent' ? 'bg-tertiary-container text-white'
+              : 'bg-primary-fixed text-on-primary-fixed'
+            : 'bg-surface-container-high text-on-surface-variant hover:opacity-80'
+        }`}
+      >
+        {s.charAt(0).toUpperCase() + s.slice(1)}
+      </button>
+    ))}
+  </div>
+);
+
+interface StudentRowProps {
+  student: Student & Partial<ReplacementStudent>;
+  isReplacement?: boolean;
+  onRemove?: () => void;
+  onStatusChange: (id: string, status: AttendanceStatus) => void;
+}
+const StudentRow: React.FC<StudentRowProps> = ({ student, isReplacement = false, onRemove, onStatusChange }) => (
+  <div className={`flex items-center justify-between px-4 py-3 rounded-xl transition-all border ${
+    student.onBreak
+      ? 'bg-surface-container-lowest border-outline-variant/10 opacity-60'
+      : student.status === 'none'
+        ? 'bg-surface-container-lowest border-outline-variant/15'
+        : 'bg-surface-container-low border-transparent'
+  }`}>
+    <div className="flex items-center gap-3">
+      <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm overflow-hidden flex-shrink-0 ${
+        isReplacement ? 'bg-primary/10 text-primary' : 'bg-surface-container-highest text-primary'
+      }`}>
+        {student.avatar
+          ? <img src={student.avatar} alt={student.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+          : student.name.split(' ').map(n => n[0]).join('')}
+      </div>
+      <div>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <p className="font-bold text-sm text-on-surface">{student.name}</p>
+          {isReplacement && <span className="bg-primary/15 text-primary text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full">Replacement</span>}
+          {student.onBreak && <span className="bg-tertiary-container/40 text-tertiary text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full">On Break</span>}
+        </div>
+        <p className="text-xs text-on-surface-variant">{student.studentId}{student.group ? ` · ${student.group}` : ''}</p>
+      </div>
+    </div>
+    <div className="flex items-center gap-1.5">
+      {student.onBreak
+        ? <span className="text-xs text-outline italic">Skipping</span>
+        : <StatusButtons student={student} onStatusChange={onStatusChange} />
+      }
+      {onRemove && (
+        <button onClick={onRemove} className="p-1 text-outline hover:text-tertiary transition-colors ml-1" title="Remove">
+          <X size={14} />
+        </button>
+      )}
+    </div>
+  </div>
+);
+
+// ─── Main component ────────────────────────────────────────────────────────────
 export const SessionRoster: React.FC<SessionRosterProps> = ({
   students,
   onStatusChange,
@@ -48,16 +116,15 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [syncMsg, setSyncMsg] = useState('');
-  const [activeTab, setActiveTab] = useState<'students' | 'coaches'>('students');
-  const [coachReplacerOpen, setCoachReplacerOpen] = useState<string | null>(null); // coachId being replaced
+  const [coachReplacerOpen, setCoachReplacerOpen] = useState<string | null>(null);
 
-  // Replacement search state
+  // Replacement panel state
   const [showReplacementPanel, setShowReplacementPanel] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSessionId, setSelectedSessionId] = useState('');
   const [selectedCoachId, setSelectedCoachId] = useState('');
 
-  // Replacement student objects with their current attendance status
+  // Replacement student objects
   const replacementStudents = replacements.map(r => {
     const s = students.find(st => st.id === r.studentId)
       ?? allRegisteredStudents.find(st => st.id === r.studentId);
@@ -65,52 +132,38 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
     return s ? { ...s, status, sessionId: r.sessionId, coachId: r.coachId } : null;
   }).filter(Boolean) as ReplacementStudent[];
 
-  // Any registered student can be a replacement — even ones already on the regular roster
-  // (they may have a Monday session but want a makeup on Wednesday)
-  // Only exclude students already added to today's replacements list
   const replacementCandidates = allRegisteredStudents.filter(s =>
     !replacements.some(r => r.studentId === s.id)
   );
-
   const filtered = replacementCandidates.filter(s =>
     s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     s.studentId.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  // Stats (students + coaches combined)
   const activeStudents = students.filter(s => !s.onBreak);
-  const presentCount  = activeStudents.filter(s => s.status === 'present').length
-    + replacementStudents.filter(s => s.status === 'present').length;
-  const absentCount   = activeStudents.filter(s => s.status === 'absent').length
-    + replacementStudents.filter(s => s.status === 'absent').length;
-  const lateCount     = activeStudents.filter(s => s.status === 'late').length
-    + replacementStudents.filter(s => s.status === 'late').length;
-  const unmarkedCount = activeStudents.filter(s => s.status === 'none').length
-    + replacementStudents.filter(s => s.status === 'none').length;
+  const presentCount  = activeStudents.filter(s => s.status === 'present').length + replacementStudents.filter(s => s.status === 'present').length;
+  const absentCount   = activeStudents.filter(s => s.status === 'absent').length  + replacementStudents.filter(s => s.status === 'absent').length;
+  const lateCount     = activeStudents.filter(s => s.status === 'late').length    + replacementStudents.filter(s => s.status === 'late').length;
+  const unmarkedCount = activeStudents.filter(s => s.status === 'none').length    + replacementStudents.filter(s => s.status === 'none').length;
 
-  // CSV stays flat (CSV can't do multiple sheets)
+  const coachPresent  = coaches.filter(c => coachAttendanceMap[c.id] === 'present').length;
+  const coachAbsent   = coaches.filter(c => coachAttendanceMap[c.id] === 'absent' || coachAttendanceMap[c.id] === 'on-leave').length;
+  const coachUnmarked = coaches.filter(c => !coachAttendanceMap[c.id] || coachAttendanceMap[c.id] === 'none').length;
+
+  // Export helpers
   const exportCSV = () => {
     const header = ['Date', 'Name', 'Student ID', 'Group', 'Session', 'Type', 'Coach', 'Status'];
     const rows = [
       ...students.flatMap(s => {
-        const sessNames = allRegisteredStudents
-          .find(rs => rs.id === s.id)?.sessionIds
-          .map(sid => sessions.find(x => x.id === sid)?.name ?? '')
-          .filter(Boolean) ?? [];
-        return [{
-          Date: sessionDate, Name: s.name, 'Student ID': s.studentId,
-          Group: s.group ?? '', Session: sessNames.join(', '), Type: 'Regular', Coach: '',
-          Status: s.status === 'none' ? 'Unmarked' : s.status.charAt(0).toUpperCase() + s.status.slice(1),
-        }];
+        const sessNames = allRegisteredStudents.find(rs => rs.id === s.id)?.sessionIds
+          .map(sid => sessions.find(x => x.id === sid)?.name ?? '').filter(Boolean) ?? [];
+        return [{ Date: sessionDate, Name: s.name, 'Student ID': s.studentId, Group: s.group ?? '', Session: sessNames.join(', '), Type: 'Regular', Coach: '', Status: s.status === 'none' ? 'Unmarked' : s.status.charAt(0).toUpperCase() + s.status.slice(1) }];
       }),
       ...replacementStudents.map(s => {
         const sess = sessions.find(x => x.id === s.sessionId);
         const coach = coaches.find(x => x.id === s.coachId);
-        return {
-          Date: sessionDate, Name: s.name, 'Student ID': s.studentId, Group: s.group ?? '',
-          Session: sess ? `${sess.name} (${sess.day})` : '', Type: 'Replacement',
-          Coach: coach?.name ?? '',
-          Status: s.status === 'none' ? 'Unmarked' : s.status.charAt(0).toUpperCase() + s.status.slice(1),
-        };
+        return { Date: sessionDate, Name: s.name, 'Student ID': s.studentId, Group: s.group ?? '', Session: sess ? `${sess.name} (${sess.day})` : '', Type: 'Replacement', Coach: coach?.name ?? '', Status: s.status === 'none' ? 'Unmarked' : s.status.charAt(0).toUpperCase() + s.status.slice(1) };
       }),
     ];
     const lines = [header.join(','), ...rows.map(r => header.map(h => `"${r[h as keyof typeof r]}"`).join(','))];
@@ -148,35 +201,6 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
     reader.readAsArrayBuffer(file);
   };
 
-  const StatusButtons = ({ student }: { student: Student }) => (
-    <div className="flex gap-2">
-      <button
-        onClick={() => onStatusChange(student.id, 'present')}
-        className={`px-3 py-1.5 rounded-full font-label text-[11px] font-bold tracking-wider uppercase transition-all active:scale-95 ${
-          student.status === 'present'
-            ? 'bg-secondary-container text-on-secondary-container'
-            : 'bg-surface-container-high text-on-surface-variant hover:bg-secondary-container/50'
-        }`}
-      >Present</button>
-      <button
-        onClick={() => onStatusChange(student.id, 'absent')}
-        className={`px-3 py-1.5 rounded-full font-label text-[11px] font-bold tracking-wider uppercase transition-all active:scale-95 ${
-          student.status === 'absent'
-            ? 'bg-tertiary-container text-white'
-            : 'bg-surface-container-high text-on-surface-variant hover:bg-tertiary-container/50'
-        }`}
-      >Absent</button>
-      <button
-        onClick={() => onStatusChange(student.id, 'late')}
-        className={`px-3 py-1.5 rounded-full font-label text-[11px] font-bold tracking-wider uppercase transition-all active:scale-95 ${
-          student.status === 'late'
-            ? 'bg-primary-fixed text-on-primary-fixed'
-            : 'bg-surface-container-high text-on-surface-variant hover:bg-primary-fixed/50'
-        }`}
-      >Late</button>
-    </div>
-  );
-
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -195,24 +219,14 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
               />
             </div>
           </div>
-
           <div className="flex gap-2 flex-wrap items-start">
-            <button
-              onClick={exportCSV}
-              className="flex items-center gap-2 px-4 py-2.5 bg-surface-container-high text-on-surface font-bold rounded-xl text-sm hover:bg-surface-container-highest transition-colors active:scale-95"
-            >
+            <button onClick={exportCSV} className="flex items-center gap-2 px-4 py-2.5 bg-surface-container-high text-on-surface font-bold rounded-xl text-sm hover:bg-surface-container-highest transition-colors active:scale-95">
               <Download size={15} />CSV
             </button>
-            <button
-              onClick={exportXLSX}
-              className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white font-bold rounded-xl text-sm hover:opacity-90 transition-opacity active:scale-95 shadow-md"
-            >
+            <button onClick={exportXLSX} className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white font-bold rounded-xl text-sm hover:opacity-90 transition-opacity active:scale-95 shadow-md">
               <FileSpreadsheet size={15} />New XLSX
             </button>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-white font-bold rounded-xl text-sm hover:opacity-90 transition-opacity active:scale-95 shadow-md"
-            >
+            <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-white font-bold rounded-xl text-sm hover:opacity-90 transition-opacity active:scale-95 shadow-md">
               <RefreshCw size={15} />Sync with Excel
             </button>
             <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleSyncFile} />
@@ -221,9 +235,7 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
 
         {syncStatus !== 'idle' && (
           <div className={`mt-4 flex items-start gap-3 p-4 rounded-2xl text-sm font-semibold ${
-            syncStatus === 'success'
-              ? 'bg-secondary-container text-on-secondary-container'
-              : 'bg-tertiary-container/30 text-tertiary'
+            syncStatus === 'success' ? 'bg-secondary-container text-on-secondary-container' : 'bg-tertiary-container/30 text-tertiary'
           }`}>
             {syncStatus === 'success' ? <CheckCircle size={18} className="shrink-0 mt-0.5" /> : <AlertCircle size={18} className="shrink-0 mt-0.5" />}
             {syncMsg}
@@ -231,219 +243,205 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
         )}
         {syncStatus === 'idle' && (
           <p className="mt-3 text-xs text-outline">
-            <strong>Sync with Excel</strong> — upload your existing attendance file and today's data (including replacements) will be appended automatically.
+            <strong>Sync with Excel</strong> — upload your existing file and today's data will be appended automatically.
           </p>
         )}
       </section>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-surface-container-low p-5 rounded-2xl flex items-center justify-between">
+      {/* Stats strip */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="bg-surface-container-low p-4 rounded-2xl flex items-center justify-between">
           <div>
-            <p className="text-xs font-medium text-on-surface-variant opacity-70">Present</p>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-outline mb-0.5">Students Present</p>
             <p className="text-2xl font-black text-secondary">{presentCount}</p>
           </div>
-          <div className="bg-secondary-container p-2.5 rounded-full text-on-secondary-container"><CheckCircle size={20} /></div>
+          <div className="bg-secondary-container p-2 rounded-full text-on-secondary-container"><CheckCircle size={18} /></div>
         </div>
-        <div className="bg-surface-container-low p-5 rounded-2xl flex items-center justify-between">
+        <div className="bg-surface-container-low p-4 rounded-2xl flex items-center justify-between">
           <div>
-            <p className="text-xs font-medium text-on-surface-variant opacity-70">Absent</p>
-            <p className="text-2xl font-black text-tertiary">{absentCount}</p>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-outline mb-0.5">Absent / Late</p>
+            <p className="text-2xl font-black text-tertiary">{absentCount + lateCount}</p>
           </div>
-          <div className="bg-tertiary-container p-2.5 rounded-full text-white"><XCircle size={20} /></div>
+          <div className="bg-tertiary-container p-2 rounded-full text-white"><XCircle size={18} /></div>
         </div>
-        <div className="bg-surface-container-low p-5 rounded-2xl flex items-center justify-between">
+        <div className="bg-surface-container-low p-4 rounded-2xl flex items-center justify-between">
           <div>
-            <p className="text-xs font-medium text-on-surface-variant opacity-70">Late</p>
-            <p className="text-2xl font-black text-primary">{lateCount}</p>
-          </div>
-          <div className="bg-primary-fixed p-2.5 rounded-full text-on-primary-fixed"><History size={20} /></div>
-        </div>
-        <div className="bg-surface-container-low p-5 rounded-2xl flex items-center justify-between">
-          <div>
-            <p className="text-xs font-medium text-on-surface-variant opacity-70">Unmarked</p>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-outline mb-0.5">Unmarked</p>
             <p className="text-2xl font-black text-outline">{unmarkedCount}</p>
           </div>
-          <div className="bg-surface-container-highest p-2.5 rounded-full text-outline"><Calendar size={20} /></div>
+          <div className="bg-surface-container-highest p-2 rounded-full text-outline"><History size={18} /></div>
+        </div>
+        <div className="bg-surface-container-low p-4 rounded-2xl flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-outline mb-0.5">Coaches Present</p>
+            <p className="text-2xl font-black text-primary">{coachPresent}<span className="text-sm font-bold text-outline">/{coaches.length}</span></p>
+          </div>
+          <div className={`p-2 rounded-full ${coachUnmarked > 0 ? 'bg-surface-container-highest text-outline' : coachAbsent > 0 ? 'bg-tertiary-container text-white' : 'bg-primary/10 text-primary'}`}>
+            <CheckCircle size={18} />
+          </div>
         </div>
       </div>
 
-      {/* Students / Coaches tab toggle */}
-      <div className="flex gap-2">
-        {(['students', 'coaches'] as const).map(tab => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-5 py-2 rounded-xl text-sm font-bold transition-all ${
-              activeTab === tab ? 'bg-primary text-white shadow-sm' : 'bg-surface-container-low text-on-surface-variant'
-            }`}
-          >
-            {tab === 'students' ? `Students (${students.length})` : `Coaches (${coaches.length})`}
-          </button>
-        ))}
-      </div>
+      {/* ── Main roster: grouped by Session → Coach → Students ── */}
+      {sessions.length === 0 ? (
+        <div className="text-center py-16 bg-surface-container-low rounded-3xl text-outline">
+          <p className="font-medium">No sessions configured.</p>
+          <p className="text-sm mt-1">Go to the Sessions tab to add training sessions first.</p>
+        </div>
+      ) : sessions.map(sess => {
+        // All students enrolled in this session
+        const sessStudents = students.filter(s => {
+          const rs = allRegisteredStudents.find(x => x.id === s.id);
+          return rs?.sessionIds.includes(sess.id);
+        });
 
-      {/* ── COACHES TAB ── */}
-      {activeTab === 'coaches' && (() => {
-        const coachPresent   = coaches.filter(c => coachAttendanceMap[c.id] === 'present').length;
-        const coachAbsent    = coaches.filter(c => coachAttendanceMap[c.id] === 'absent').length;
-        const coachOnLeave   = coaches.filter(c => coachAttendanceMap[c.id] === 'on-leave').length;
-        const coachUnmarked  = coaches.filter(c => !coachAttendanceMap[c.id] || coachAttendanceMap[c.id] === 'none').length;
+        // Coaches handling this session
+        const sessCoaches = coaches.filter(c => c.sessionIds.includes(sess.id));
+
+        if (sessStudents.length === 0 && sessCoaches.length === 0) return null;
 
         return (
-          <div className="space-y-6">
-            {/* Coach stats */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {[
-                { label: 'Present', value: coachPresent, color: 'text-secondary', bg: 'bg-secondary-container/30' },
-                { label: 'Absent',  value: coachAbsent,  color: 'text-tertiary',  bg: 'bg-tertiary-container/20' },
-                { label: 'On Leave',value: coachOnLeave, color: 'text-primary',   bg: 'bg-primary/5' },
-                { label: 'Unmarked',value: coachUnmarked,color: 'text-outline',   bg: 'bg-surface-container-low' },
-              ].map(s => (
-                <div key={s.label} className={`${s.bg} p-4 rounded-2xl`}>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-outline mb-1">{s.label}</p>
-                  <p className={`text-2xl font-black ${s.color}`}>{s.value}</p>
-                </div>
-              ))}
+          <div key={sess.id} className="space-y-3">
+            {/* Session header */}
+            <div className="flex items-center gap-3">
+              <div className="flex-1 h-px bg-outline-variant/20" />
+              <span className="text-[11px] font-black uppercase tracking-widest text-outline whitespace-nowrap">
+                {sess.name} · {sess.day} {sess.startTime}–{sess.endTime}
+              </span>
+              <div className="flex-1 h-px bg-outline-variant/20" />
             </div>
 
-            {/* Coach rows grouped by session */}
-            {sessions.length === 0 ? (
-              <p className="text-sm text-outline text-center py-8">No sessions configured.</p>
-            ) : sessions.map(sess => {
-              const sessCoaches = coaches.filter(c => c.sessionIds.includes(sess.id));
-              if (sessCoaches.length === 0) return null;
-              return (
-                <div key={sess.id}>
-                  <p className="text-[11px] font-bold uppercase tracking-widest text-outline mb-2">
-                    {sess.name} · {sess.day} {sess.startTime}–{sess.endTime}
-                  </p>
-                  <div className="flex flex-col gap-2">
-                    {sessCoaches.map(coach => {
-                      const st = coachAttendanceMap[coach.id] ?? 'none';
-                      const repl = coachReplacements.find(r => r.coachId === coach.id && r.sessionId === sess.id);
-                      const replCoach = repl ? coaches.find(c => c.id === repl.replacedById) : null;
-                      const isAbsentOrLeave = st === 'absent' || st === 'on-leave';
-                      return (
-                        <div key={coach.id} className={`p-4 rounded-2xl border transition-all ${
-                          st === 'none' ? 'bg-surface-container-lowest border-outline-variant/20'
-                          : st === 'present' ? 'bg-secondary-container/10 border-secondary-container/20'
-                          : 'bg-tertiary-container/10 border-tertiary-container/20'
-                        }`}>
-                          <div className="flex items-center justify-between gap-3 flex-wrap">
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-full bg-secondary-container flex items-center justify-center text-xs font-black text-on-secondary-container">
-                                {coach.initials}
-                              </div>
-                              <div>
-                                <p className="font-bold text-on-surface">{coach.name}</p>
-                                {replCoach && (
-                                  <p className="text-xs text-primary font-semibold mt-0.5">↳ Replaced by {replCoach.name}</p>
-                                )}
-                              </div>
-                            </div>
-                            <div className="flex gap-1.5 flex-wrap">
-                              {(['present', 'absent', 'on-leave'] as CoachAttendanceStatus[]).map(s => (
-                                <button
-                                  key={s}
-                                  onClick={() => onCoachAttendance(coach.id, s)}
-                                  className={`px-3 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 ${
-                                    st === s
-                                      ? s === 'present' ? 'bg-secondary-container text-on-secondary-container'
-                                        : s === 'absent'   ? 'bg-tertiary-container text-white'
-                                        : 'bg-primary-fixed text-on-primary-fixed'
-                                      : 'bg-surface-container-high text-on-surface-variant'
-                                  }`}
-                                >
-                                  {s === 'on-leave' ? 'On Leave' : s.charAt(0).toUpperCase() + s.slice(1)}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
+            {sessCoaches.map(coach => {
+              const st = coachAttendanceMap[coach.id] ?? 'none';
+              const repl = coachReplacements.find(r => r.coachId === coach.id && r.sessionId === sess.id);
+              const replCoach = repl ? coaches.find(c => c.id === repl.replacedById) : null;
+              const isAbsentOrLeave = st === 'absent' || st === 'on-leave';
 
-                          {/* Replacement coach picker */}
-                          {isAbsentOrLeave && (
-                            <div className="mt-3 pl-13">
-                              {coachReplacerOpen === `${coach.id}-${sess.id}` ? (
-                                <div className="flex flex-wrap gap-2 mt-1">
-                                  <button
-                                    onClick={() => { onSetCoachReplacement(coach.id, '', sess.id); setCoachReplacerOpen(null); }}
-                                    className="px-3 py-1 rounded-full text-xs font-bold bg-surface-container-highest text-outline"
-                                  >None</button>
-                                  {coaches.filter(c => c.id !== coach.id).map(c => (
-                                    <button
-                                      key={c.id}
-                                      onClick={() => { onSetCoachReplacement(coach.id, c.id, sess.id); setCoachReplacerOpen(null); }}
-                                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all active:scale-95 ${
-                                        repl?.replacedById === c.id ? 'bg-primary text-white' : 'bg-surface-container-high text-on-surface-variant'
-                                      }`}
-                                    >{c.name}</button>
-                                  ))}
-                                </div>
-                              ) : (
-                                <button
-                                  onClick={() => setCoachReplacerOpen(`${coach.id}-${sess.id}`)}
-                                  className="text-xs font-bold text-primary hover:underline"
-                                >
-                                  {replCoach ? `Change replacement →` : `+ Assign replacement coach`}
-                                </button>
-                              )}
-                            </div>
+              // Students under this coach in this session
+              const coachStudents = sessStudents.filter(s => {
+                const rs = allRegisteredStudents.find(x => x.id === s.id);
+                return rs?.sessionCoachMap?.[sess.id] === coach.id;
+              });
+
+              return (
+                <div key={coach.id} className={`rounded-2xl border overflow-hidden transition-all ${
+                  st === 'none'      ? 'border-outline-variant/20 bg-surface-container-lowest'
+                  : st === 'present' ? 'border-secondary-container/30 bg-secondary-container/5'
+                  : 'border-tertiary-container/30 bg-tertiary-container/5'
+                }`}>
+                  {/* Coach row */}
+                  <div className="flex items-center justify-between gap-3 px-4 py-3 flex-wrap">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-black flex-shrink-0 ${
+                        st === 'present' ? 'bg-secondary-container text-on-secondary-container'
+                        : st === 'none'  ? 'bg-surface-container-high text-outline'
+                        : 'bg-tertiary-container/30 text-tertiary'
+                      }`}>
+                        {coach.initials}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-bold text-sm text-on-surface">{coach.name}</p>
+                          <span className="text-[9px] font-black uppercase tracking-wider text-outline bg-surface-container-high px-2 py-0.5 rounded-full">Coach</span>
+                          {coach.ratePerClass && (
+                            <span className="text-[9px] font-bold text-outline">RM{coach.ratePerClass}/class</span>
                           )}
                         </div>
-                      );
-                    })}
+                        {replCoach && (
+                          <p className="text-xs text-primary font-semibold">↳ Replaced by {replCoach.name}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {(['present', 'absent', 'on-leave'] as CoachAttendanceStatus[]).map(s => (
+                        <button
+                          key={s}
+                          onClick={() => onCoachAttendance(coach.id, s)}
+                          className={`px-3 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 ${
+                            st === s
+                              ? s === 'present'  ? 'bg-secondary-container text-on-secondary-container'
+                                : s === 'absent' ? 'bg-tertiary-container text-white'
+                                : 'bg-primary-fixed text-on-primary-fixed'
+                              : 'bg-surface-container-high text-on-surface-variant hover:opacity-80'
+                          }`}
+                        >
+                          {s === 'on-leave' ? 'On Leave' : s.charAt(0).toUpperCase() + s.slice(1)}
+                        </button>
+                      ))}
+                    </div>
                   </div>
+
+                  {/* Replacement coach picker */}
+                  {isAbsentOrLeave && (
+                    <div className="px-4 pb-3 pl-16">
+                      {coachReplacerOpen === `${coach.id}-${sess.id}` ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          <button
+                            onClick={() => { onSetCoachReplacement(coach.id, '', sess.id); setCoachReplacerOpen(null); }}
+                            className="px-3 py-1 rounded-full text-xs font-bold bg-surface-container-highest text-outline"
+                          >None</button>
+                          {coaches.filter(c => c.id !== coach.id).map(c => (
+                            <button
+                              key={c.id}
+                              onClick={() => { onSetCoachReplacement(coach.id, c.id, sess.id); setCoachReplacerOpen(null); }}
+                              className={`px-3 py-1 rounded-full text-xs font-bold transition-all active:scale-95 ${
+                                repl?.replacedById === c.id ? 'bg-primary text-white' : 'bg-surface-container-high text-on-surface-variant'
+                              }`}
+                            >{c.name}</button>
+                          ))}
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setCoachReplacerOpen(`${coach.id}-${sess.id}`)}
+                          className="text-xs font-bold text-primary hover:underline"
+                        >
+                          {replCoach ? 'Change replacement →' : '+ Assign replacement coach'}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Students under this coach */}
+                  {coachStudents.length > 0 && (
+                    <div className="px-3 pb-3 space-y-1.5">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-outline px-1 pt-1">
+                        Students ({coachStudents.length})
+                      </p>
+                      {coachStudents.map(student => (
+                        <StudentRow key={student.id} student={student} onStatusChange={onStatusChange} />
+                      ))}
+                    </div>
+                  )}
+
+                  {coachStudents.length === 0 && (
+                    <p className="px-4 pb-3 text-xs text-outline italic">No students assigned to this coach in this session.</p>
+                  )}
                 </div>
               );
             })}
+
+            {/* Students in this session with no coach assigned */}
+            {(() => {
+              const unassigned = sessStudents.filter(s => {
+                const rs = allRegisteredStudents.find(x => x.id === s.id);
+                const coachId = rs?.sessionCoachMap?.[sess.id];
+                return !coachId || !coaches.find(c => c.id === coachId);
+              });
+              if (unassigned.length === 0) return null;
+              return (
+                <div className="rounded-2xl border border-outline-variant/20 bg-surface-container-lowest overflow-hidden">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-outline px-4 pt-3 pb-2">
+                    Unassigned Coach · {unassigned.length} student{unassigned.length > 1 ? 's' : ''}
+                  </p>
+                  <div className="px-3 pb-3 space-y-1.5">
+                    {unassigned.map(student => <StudentRow key={student.id} student={student} onStatusChange={onStatusChange} />)}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         );
-      })()}
-
-      {/* ── STUDENTS TAB ── */}
-      {activeTab === 'students' && <><div className="flex flex-col gap-2">
-        {students.length === 0 ? (
-          <div className="text-center py-16 bg-surface-container-low rounded-3xl text-outline">
-            <p className="font-medium">No students registered yet.</p>
-            <p className="text-sm mt-1">Go to the Students tab to register students first.</p>
-          </div>
-        ) : students.map(student => (
-          <div
-            key={student.id}
-            className={`group p-4 rounded-2xl flex items-center justify-between transition-all border ${
-              student.onBreak
-                ? 'bg-surface-container-lowest border-outline-variant/10 opacity-60'
-                : student.status === 'none'
-                  ? 'bg-surface-container-lowest border-outline-variant/20'
-                  : 'bg-surface-container-low border-transparent'
-            }`}
-          >
-            <div className="flex items-center gap-4">
-              <div className="w-11 h-11 rounded-full bg-surface-container-highest flex items-center justify-center font-bold text-primary overflow-hidden">
-                {student.avatar
-                  ? <img src={student.avatar} alt={student.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                  : student.name.split(' ').map(n => n[0]).join('')}
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h4 className="font-headline font-bold text-on-surface">{student.name}</h4>
-                  {student.onBreak && (
-                    <span className="bg-tertiary-container/40 text-tertiary text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full">On Break</span>
-                  )}
-                </div>
-                <p className="text-xs text-on-surface-variant font-medium">
-                  {student.studentId}{student.group ? ` · ${student.group}` : ''}
-                </p>
-              </div>
-            </div>
-            {student.onBreak
-              ? <span className="text-xs text-outline italic">Skipping this period</span>
-              : <StatusButtons student={student} />
-            }
-          </div>
-        ))}
-      </div>
+      })}
 
       {/* Replacements section */}
       <div className="space-y-3">
@@ -462,100 +460,47 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
           </button>
         </div>
 
-        {/* Replacement search panel */}
         {showReplacementPanel && (
           <div className="bg-surface-container-low rounded-3xl overflow-hidden border-2 border-primary/20">
             <div className="flex items-center justify-between px-5 pt-5 pb-3">
               <span className="font-headline font-bold text-base">Add Replacement Student</span>
-              <button onClick={() => setShowReplacementPanel(false)} className="p-1 text-outline hover:text-on-surface">
-                <X size={18} />
-              </button>
+              <button onClick={() => setShowReplacementPanel(false)} className="p-1 text-outline hover:text-on-surface"><X size={18} /></button>
             </div>
-
-            {/* Session picker */}
             {sessions.length > 0 && (
               <div className="px-5 pb-3">
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-outline mb-1.5">
-                  Replacing into session
-                </label>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-outline mb-1.5">Session</label>
                 <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={() => { setSelectedSessionId(''); setSelectedCoachId(''); }}
-                    className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
-                      !selectedSessionId ? 'bg-primary text-white' : 'bg-surface-container-high text-on-surface-variant'
-                    }`}
-                  >
-                    Unspecified
-                  </button>
+                  <button onClick={() => { setSelectedSessionId(''); setSelectedCoachId(''); }} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${!selectedSessionId ? 'bg-primary text-white' : 'bg-surface-container-high text-on-surface-variant'}`}>Unspecified</button>
                   {sessions.map(s => (
-                    <button
-                      key={s.id}
-                      onClick={() => { setSelectedSessionId(s.id); setSelectedCoachId(''); }}
-                      className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
-                        selectedSessionId === s.id ? 'bg-primary text-white' : 'bg-surface-container-high text-on-surface-variant'
-                      }`}
-                    >
-                      {s.name}
-                    </button>
+                    <button key={s.id} onClick={() => { setSelectedSessionId(s.id); setSelectedCoachId(''); }} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${selectedSessionId === s.id ? 'bg-primary text-white' : 'bg-surface-container-high text-on-surface-variant'}`}>{s.name}</button>
                   ))}
                 </div>
               </div>
             )}
-
-            {/* Coach picker — shown only when a session is selected */}
             {selectedSessionId && (() => {
               const sessCoaches = coaches.filter(c => c.sessionIds.includes(selectedSessionId));
               return sessCoaches.length > 0 ? (
                 <div className="px-5 pb-3">
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-outline mb-1.5">
-                    Under which coach
-                  </label>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-outline mb-1.5">Coach</label>
                   <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={() => setSelectedCoachId('')}
-                      className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
-                        !selectedCoachId ? 'bg-secondary-container text-on-secondary-container' : 'bg-surface-container-high text-on-surface-variant'
-                      }`}
-                    >
-                      Unassigned
-                    </button>
+                    <button onClick={() => setSelectedCoachId('')} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${!selectedCoachId ? 'bg-secondary-container text-on-secondary-container' : 'bg-surface-container-high text-on-surface-variant'}`}>Unassigned</button>
                     {sessCoaches.map(c => (
-                      <button
-                        key={c.id}
-                        onClick={() => setSelectedCoachId(c.id)}
-                        className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
-                          selectedCoachId === c.id ? 'bg-primary text-white shadow-sm' : 'bg-surface-container-high text-on-surface-variant'
-                        }`}
-                      >
-                        {c.name}
-                      </button>
+                      <button key={c.id} onClick={() => setSelectedCoachId(c.id)} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${selectedCoachId === c.id ? 'bg-primary text-white' : 'bg-surface-container-high text-on-surface-variant'}`}>{c.name}</button>
                     ))}
                   </div>
                 </div>
               ) : null;
             })()}
-
-            {/* Search */}
             <div className="px-5 pb-3">
               <div className="flex items-center gap-2 bg-surface-container-high px-3 py-2.5 rounded-xl">
                 <Search size={14} className="text-outline shrink-0" />
-                <input
-                  autoFocus
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  placeholder="Search by name or ID…"
-                  className="bg-transparent text-sm text-on-surface font-medium flex-1 focus:outline-none placeholder:text-outline"
-                />
+                <input autoFocus value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search by name or ID…" className="bg-transparent text-sm text-on-surface font-medium flex-1 focus:outline-none placeholder:text-outline" />
               </div>
             </div>
-
-            {/* Results */}
             <div className="px-5 pb-5 space-y-2 max-h-64 overflow-y-auto">
               {filtered.length === 0 ? (
                 <p className="text-sm text-outline text-center py-4">
-                  {replacementCandidates.length === 0
-                    ? 'All registered students are already on today\'s roster.'
-                    : 'No students match your search.'}
+                  {replacementCandidates.length === 0 ? "All registered students are already on today's roster." : 'No students match your search.'}
                 </p>
               ) : filtered.map(s => (
                 <div key={s.id} className="flex items-center justify-between bg-surface-container-high px-4 py-3 rounded-2xl">
@@ -563,22 +508,13 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
                     <p className="font-bold text-sm text-on-surface">{s.name}</p>
                     <p className="text-xs text-outline">{s.studentId}{s.group ? ` · ${s.group}` : ''}</p>
                   </div>
-                  <button
-                    onClick={() => {
-                      onAddReplacement(s.id, selectedSessionId, selectedCoachId);
-                      setSearchQuery('');
-                    }}
-                    className="bg-primary text-white font-bold text-xs px-3 py-1.5 rounded-full active:scale-95 transition-transform"
-                  >
-                    Add
-                  </button>
+                  <button onClick={() => { onAddReplacement(s.id, selectedSessionId, selectedCoachId); setSearchQuery(''); }} className="bg-primary text-white font-bold text-xs px-3 py-1.5 rounded-full active:scale-95 transition-transform">Add</button>
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        {/* Replacement student rows */}
         {replacementStudents.length === 0 && !showReplacementPanel && (
           <p className="text-sm text-outline bg-surface-container-low rounded-2xl px-5 py-4">
             No replacements today. Tap <strong>Add Replacement</strong> to add a student doing a makeup class.
@@ -589,39 +525,22 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
           const sess = sessions.find(x => x.id === student.sessionId);
           const coach = coaches.find(x => x.id === student.coachId);
           return (
-            <div
-              key={student.id}
-              className={`p-4 rounded-2xl flex items-center justify-between transition-all border border-primary/10 ${
-                student.status === 'none' ? 'bg-primary/5' : 'bg-surface-container-low'
-              }`}
-            >
+            <div key={student.id} className={`p-4 rounded-2xl flex items-center justify-between transition-all border border-primary/10 ${student.status === 'none' ? 'bg-primary/5' : 'bg-surface-container-low'}`}>
               <div className="flex items-center gap-4">
-                <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary overflow-hidden">
-                  {student.avatar
-                    ? <img src={student.avatar} alt={student.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                    : student.name.split(' ').map(n => n[0]).join('')}
+                <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center font-bold text-sm text-primary overflow-hidden">
+                  {student.avatar ? <img src={student.avatar} alt={student.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" /> : student.name.split(' ').map(n => n[0]).join('')}
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
-                    <h4 className="font-headline font-bold text-on-surface">{student.name}</h4>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-bold text-sm text-on-surface">{student.name}</p>
                     <span className="bg-primary/15 text-primary text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full">Replacement</span>
                   </div>
-                  <p className="text-xs text-on-surface-variant font-medium">
-                    {student.studentId}
-                    {sess ? ` · ${sess.name} (${sess.day})` : ''}
-                    {coach ? ` · ${coach.name}` : ''}
-                  </p>
+                  <p className="text-xs text-on-surface-variant">{student.studentId}{sess ? ` · ${sess.name}` : ''}{coach ? ` · ${coach.name}` : ''}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <StatusButtons student={student} />
-                <button
-                  onClick={() => onRemoveReplacement(student.id)}
-                  className="p-1.5 text-outline hover:text-tertiary transition-colors ml-1"
-                  title="Remove replacement"
-                >
-                  <X size={16} />
-                </button>
+              <div className="flex items-center gap-1.5">
+                <StatusButtons student={student} onStatusChange={onStatusChange} />
+                <button onClick={() => onRemoveReplacement(student.id)} className="p-1.5 text-outline hover:text-tertiary transition-colors ml-1" title="Remove"><X size={15} /></button>
               </div>
             </div>
           );
@@ -632,13 +551,9 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
       {(students.length + replacementStudents.length) > 0 && unmarkedCount === 0 && (
         <div className="flex items-center gap-3 p-4 bg-secondary-container/30 rounded-2xl text-on-secondary-container text-sm font-semibold">
           <CheckCircle size={18} />
-          All {students.length + replacementStudents.length} students marked
-          {replacementStudents.length > 0 && ` (${replacementStudents.length} replacement${replacementStudents.length > 1 ? 's' : ''})`}
-          — tap <strong>Sync with Excel</strong> to save.
+          All {activeStudents.length + replacementStudents.length} students marked — tap <strong>Sync with Excel</strong> to save.
         </div>
       )}
-      </>}
-
     </div>
   );
 };
