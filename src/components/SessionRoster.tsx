@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import * as XLSX from 'xlsx-js-style';
-import { CheckCircle, XCircle, History, Calendar, Download, FileSpreadsheet, RefreshCw, AlertCircle, UserPlus, X, Search } from 'lucide-react';
+import { CheckCircle, XCircle, History, Calendar, Download, FileSpreadsheet, RefreshCw, AlertCircle, UserPlus, X, Search, ChevronLeft, ChevronRight, Clock } from 'lucide-react';
 import { Student, AttendanceStatus, CoachAttendanceStatus, RegisteredStudent, RegisteredCoach, TrainingSession, PaymentStatus } from '../types';
 import { buildCombinedWorkbook, ReplacementStudent, CoachReplacement } from '../utils/excel';
 
@@ -152,6 +152,34 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
   const coachUnmarked = coaches.filter(c => !coachAttendanceMap[c.id] || coachAttendanceMap[c.id] === 'none').length;
 
   // Export helpers
+  // ── Date navigation helpers ───────────────────────────────────────────────
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const isPastDate = sessionDate < todayStr;
+  const isToday = sessionDate === todayStr;
+
+  const shiftDate = (days: number) => {
+    const d = new Date(sessionDate + 'T00:00:00');
+    d.setDate(d.getDate() + days);
+    const next = d.toISOString().slice(0, 10);
+    if (next > todayStr) return; // don't go past today
+    onDateChange(next);
+  };
+
+  const friendlyDate = new Date(sessionDate + 'T00:00:00').toLocaleDateString('en-GB', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+  });
+
+  // Check if there is any saved attendance data for this date
+  const hasAttendanceData = (() => {
+    try {
+      const key = `branch_${activeBranchId}_attendance_${sessionDate}`;
+      const v = localStorage.getItem(key);
+      if (!v) return false;
+      const obj = JSON.parse(v);
+      return Object.keys(obj).length > 0;
+    } catch { return false; }
+  })();
+
   const exportCSV = () => {
     const header = ['Date', 'Name', 'Student ID', 'Group', 'Session', 'Type', 'Coach', 'Status'];
     const rows = [
@@ -208,16 +236,66 @@ export const SessionRoster: React.FC<SessionRosterProps> = ({
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
           <div className="flex-1">
             <span className="font-label text-xs font-bold tracking-[0.2em] text-primary uppercase mb-2 block">Session Attendance</span>
-            <h2 className="font-headline text-4xl font-extrabold tracking-tight text-on-surface mb-4">Badminton Training</h2>
-            <div className="flex items-center gap-2 bg-surface-container-low px-4 py-2.5 rounded-xl w-fit">
-              <Calendar size={16} className="text-primary" />
-              <input
-                type="date"
-                value={sessionDate}
-                onChange={e => onDateChange(e.target.value)}
-                className="bg-transparent font-medium text-on-surface text-sm focus:outline-none cursor-pointer"
-              />
+            <h2 className="font-headline text-4xl font-extrabold tracking-tight text-on-surface mb-3">Badminton Training</h2>
+
+            {/* Date navigator */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Prev / Next arrows + date picker */}
+              <div className="flex items-center gap-1 bg-surface-container-low rounded-xl px-1 py-1">
+                <button
+                  onClick={() => shiftDate(-1)}
+                  className="p-1.5 rounded-lg text-outline hover:text-primary hover:bg-surface-container-high transition-colors"
+                  title="Previous day"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <div className="flex items-center gap-2 px-2">
+                  <Calendar size={14} className="text-primary flex-shrink-0" />
+                  <input
+                    type="date"
+                    value={sessionDate}
+                    max={todayStr}
+                    onChange={e => e.target.value && onDateChange(e.target.value)}
+                    className="bg-transparent font-bold text-on-surface text-sm focus:outline-none cursor-pointer"
+                  />
+                </div>
+                <button
+                  onClick={() => shiftDate(1)}
+                  disabled={isToday}
+                  className="p-1.5 rounded-lg text-outline hover:text-primary hover:bg-surface-container-high transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="Next day"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+
+              {/* Jump to today */}
+              {!isToday && (
+                <button
+                  onClick={() => onDateChange(todayStr)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary/10 text-primary text-xs font-bold hover:bg-primary/20 transition-colors"
+                >
+                  <Calendar size={13} />Today
+                </button>
+              )}
+
+              {/* Friendly date label */}
+              <span className="text-sm font-semibold text-on-surface-variant">{friendlyDate}</span>
             </div>
+
+            {/* Past date / data indicator */}
+            {isPastDate && (
+              <div className={`mt-3 flex items-center gap-2 px-3 py-2 rounded-xl w-fit text-xs font-bold ${
+                hasAttendanceData
+                  ? 'bg-secondary-container/30 text-on-secondary-container'
+                  : 'bg-surface-container-high text-outline'
+              }`}>
+                <Clock size={13} />
+                {hasAttendanceData
+                  ? 'Viewing saved attendance — edits will update the record'
+                  : 'No attendance saved for this date'}
+              </div>
+            )}
           </div>
           <div className="flex gap-2 flex-wrap items-start">
             <button onClick={exportCSV} className="flex items-center gap-2 px-4 py-2.5 bg-surface-container-high text-on-surface font-bold rounded-xl text-sm hover:bg-surface-container-highest transition-colors active:scale-95">
