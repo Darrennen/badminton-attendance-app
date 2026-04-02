@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Layout } from './components/Layout';
 import { Dashboard } from './components/Dashboard';
 import { SessionRoster } from './components/SessionRoster';
@@ -86,8 +86,15 @@ export default function App() {
     return localStorage.getItem('active_branch') ?? branches[0]?.id ?? 'main';
   });
 
-  /** Prefix any localStorage key with the active branch's namespace */
-  const bk = useCallback((key: string) => `branch_${activeBranchId}_${key}`, [activeBranchId]);
+  /**
+   * Prefix any localStorage key with the active branch's namespace.
+   * Uses a ref so save-effects stay stable — they don't include bk in their
+   * dependency arrays, which prevents the bug where the old branch's data gets
+   * written to the new branch's keys between a branch switch and the reload.
+   */
+  const branchIdRef = useRef(activeBranchId);
+  branchIdRef.current = activeBranchId; // always current, updated during render
+  const bk = (key: string) => `branch_${branchIdRef.current}_${key}`;
 
   useEffect(() => { saveJSON('branches', branches); }, [branches]);
   useEffect(() => { localStorage.setItem('active_branch', activeBranchId); }, [activeBranchId]);
@@ -148,13 +155,15 @@ export default function App() {
     setPaymentMap(loadJSON(bk(`payments_${paymentMonth}`), {}));
     setCoachPaymentMap(loadJSON(bk(`coach_payments_${paymentMonth}`), {}));
     setExpenses(loadJSON(bk(`expenses_${paymentMonth}`), []));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeBranchId]);
+  }, [activeBranchId]); // bk reads from branchIdRef so no additional dep needed
 
   // ─── Persist registered data ──────────────────────────────────────────────
-  useEffect(() => { saveJSON(bk('registered_students'), registeredStudents); }, [registeredStudents, bk]);
-  useEffect(() => { saveJSON(bk('registered_coaches'), registeredCoaches); }, [registeredCoaches, bk]);
-  useEffect(() => { saveJSON(bk('training_sessions'), trainingSessions); }, [trainingSessions, bk]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { saveJSON(bk('registered_students'), registeredStudents); }, [registeredStudents]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { saveJSON(bk('registered_coaches'), registeredCoaches); }, [registeredCoaches]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { saveJSON(bk('training_sessions'), trainingSessions); }, [trainingSessions]);
 
   // ─── Attendance: load on date/branch change, save on change ───────────────
   useEffect(() => {
@@ -162,8 +171,10 @@ export default function App() {
     setReplacements(loadJSON(bk(`replacements_${sessionDate}`), []));
   }, [sessionDate, bk]);
 
-  useEffect(() => { saveJSON(bk(`attendance_${sessionDate}`), attendanceMap); }, [attendanceMap, sessionDate, bk]);
-  useEffect(() => { saveJSON(bk(`replacements_${sessionDate}`), replacements); }, [replacements, sessionDate, bk]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { saveJSON(bk(`attendance_${sessionDate}`), attendanceMap); }, [attendanceMap, sessionDate]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { saveJSON(bk(`replacements_${sessionDate}`), replacements); }, [replacements, sessionDate]);
 
   // ─── Payment state (per month, per branch) ────────────────────────────────
   const [paymentMonth, setPaymentMonth] = useState(thisMonth());
@@ -177,15 +188,18 @@ export default function App() {
     setPaymentMap(loadJSON(bk(`payments_${paymentMonth}`), {}));
     setCoachPaymentMap(loadJSON(bk(`coach_payments_${paymentMonth}`), {}));
   }, [paymentMonth, bk]);
-  useEffect(() => { saveJSON(bk(`payments_${paymentMonth}`), paymentMap); }, [paymentMap, paymentMonth, bk]);
-  useEffect(() => { saveJSON(bk(`coach_payments_${paymentMonth}`), coachPaymentMap); }, [coachPaymentMap, paymentMonth, bk]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { saveJSON(bk(`payments_${paymentMonth}`), paymentMap); }, [paymentMap, paymentMonth]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { saveJSON(bk(`coach_payments_${paymentMonth}`), coachPaymentMap); }, [coachPaymentMap, paymentMonth]);
 
   // ─── Monthly expenses (per month, per branch) ─────────────────────────────
   const [expenses, setExpenses] = useState<MonthlyExpense[]>(
     () => loadJSON(bk(`expenses_${thisMonth()}`), [])
   );
   useEffect(() => { setExpenses(loadJSON(bk(`expenses_${paymentMonth}`), [])); }, [paymentMonth, bk]);
-  useEffect(() => { saveJSON(bk(`expenses_${paymentMonth}`), expenses); }, [expenses, paymentMonth, bk]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { saveJSON(bk(`expenses_${paymentMonth}`), expenses); }, [expenses, paymentMonth]);
 
   const addExpense = (e: MonthlyExpense) => setExpenses(prev => [...prev, e]);
   const removeExpense = (id: string) => setExpenses(prev => prev.filter(e => e.id !== id));
@@ -222,8 +236,10 @@ export default function App() {
     setCoachAttendanceMap(loadJSON(bk(`coach_attendance_${sessionDate}`), {}));
     setCoachReplacements(loadJSON(bk(`coach_replacements_${sessionDate}`), []));
   }, [sessionDate, bk]);
-  useEffect(() => { saveJSON(bk(`coach_attendance_${sessionDate}`), coachAttendanceMap); }, [coachAttendanceMap, sessionDate, bk]);
-  useEffect(() => { saveJSON(bk(`coach_replacements_${sessionDate}`), coachReplacements); }, [coachReplacements, sessionDate, bk]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { saveJSON(bk(`coach_attendance_${sessionDate}`), coachAttendanceMap); }, [coachAttendanceMap, sessionDate]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { saveJSON(bk(`coach_replacements_${sessionDate}`), coachReplacements); }, [coachReplacements, sessionDate]);
 
   const handleCoachAttendance = (coachId: string, status: CoachAttendanceStatus) =>
     setCoachAttendanceMap(prev => ({ ...prev, [coachId]: status }));
@@ -237,7 +253,8 @@ export default function App() {
   const [scheduledReplacements, setScheduledReplacements] = useState<ScheduledReplacement[]>(
     () => loadJSON(bk('scheduled_replacements'), [])
   );
-  useEffect(() => { saveJSON(bk('scheduled_replacements'), scheduledReplacements); }, [scheduledReplacements, bk]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { saveJSON(bk('scheduled_replacements'), scheduledReplacements); }, [scheduledReplacements]);
 
   const addScheduledReplacement = (r: ScheduledReplacement) =>
     setScheduledReplacements(prev => [...prev, r]);
